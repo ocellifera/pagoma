@@ -1,7 +1,11 @@
+#include "include/invm.h"
+#include "include/utilities.h"
+
 #include <deal.II/base/conditional_ostream.h>
 #include <deal.II/base/config.h>
 #include <deal.II/base/data_out_base.h>
 #include <deal.II/base/enable_observer_pointer.h>
+#include <deal.II/base/exceptions.h>
 #include <deal.II/base/memory_space.h>
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/quadrature_lib.h>
@@ -14,40 +18,19 @@
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/la_parallel_vector.h>
 #include <deal.II/lac/precondition.h>
+#include <deal.II/lac/read_write_vector.h>
 #include <deal.II/lac/solver_cg.h>
 #include <deal.II/lac/vector_operation.h>
-#include <deal.II/matrix_free/evaluation_flags.h>
-#include <deal.II/matrix_free/operators.h>
-#include <deal.II/matrix_free/portable_fe_evaluation.h>
-#include <deal.II/matrix_free/portable_matrix_free.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
+#include <iterator>
+#include <type_traits>
 
 // Parameters for the mobility and gradient energy
 constexpr double mobility = 1.0;
 constexpr double gradient_energy = 1.0;
 constexpr double timestep = 1e-4;
 constexpr unsigned total_increments = 10;
-
-/**
- * Evaluation of the inverted mass matrix at each quadrature point.
- */
-template <unsigned int dim, unsigned int degree> class InvmQuad {
-public:
-  InvmQuad() = default;
-
-  DEAL_II_HOST_DEVICE void
-  operator()(dealii::Portable::FEEvaluation<dim, degree, degree + 1, 1, double>
-                 *fe_eval,
-             const unsigned int q_point) const {
-    fe_eval->submit_value(1.0, q_point);
-  };
-
-  static constexpr unsigned int n_q_points =
-      dealii::Utilities::pow(degree + 1, dim);
-
-  static constexpr unsigned int n_local_dofs = n_q_points;
-};
 
 /**
  * Evaluation of the Allen-Cahn operator at each quadrature point.
@@ -70,28 +53,6 @@ public:
 
     fe_eval->submit_value(value_submission, q_point);
     fe_eval->submit_gradient(gradient_submission, q_point);
-  };
-
-  static constexpr unsigned int n_q_points =
-      dealii::Utilities::pow(degree + 1, dim);
-
-  static constexpr unsigned int n_local_dofs = n_q_points;
-};
-
-template <unsigned int dim, unsigned int degree> class LocalInvm {
-public:
-  LocalInvm() = default;
-
-  DEAL_II_HOST_DEVICE void operator()(
-      const typename dealii::Portable::MatrixFree<dim, double>::Data *data,
-      const dealii::Portable::DeviceVector<double> &src,
-      dealii::Portable::DeviceVector<double> &dst) const {
-    dealii::Portable::FEEvaluation<dim, degree, degree + 1, 1, double> fe_eval(
-        data);
-
-    fe_eval.apply_for_each_quad_point(InvmQuad<dim, degree>());
-    fe_eval.integrate(dealii::EvaluationFlags::EvaluationFlags::values);
-    fe_eval.distribute_local_to_global(dst);
   };
 
   static constexpr unsigned int n_q_points =
@@ -170,42 +131,6 @@ private:
   dealii::Portable::MatrixFree<dim, double> data;
 };
 
-template <unsigned int dim, unsigned int degree>
-class Invm : public dealii::EnableObserverPointer {
-public:
-  Invm(dealii::Portable::MatrixFree<dim, double> *_data) : data(_data) {};
-
-  void compute(dealii::LinearAlgebra::distributed::Vector<
-               double, dealii::MemorySpace::Default> &vec) {
-
-    dealii::LinearAlgebra::distributed::Vector<double,
-                                               dealii::MemorySpace::Default>
-        dummy;
-
-    data->initialize_dof_vector(vec);
-    data->initialize_dof_vector(dummy);
-
-    vec = 0.0;
-    LocalInvm<dim, degree> invm;
-    data->cell_loop(invm, dummy, vec);
-
-    double *vec_dev = vec.get_values();
-    const double tolerance = 1.0e-12;
-
-    Kokkos::parallel_for(
-        vec.locally_owned_size(), KOKKOS_LAMBDA(int i) {
-          if (Kokkos::abs(vec_dev[i]) > tolerance) {
-            vec_dev[i] = 1.0 / vec_dev[i];
-          } else {
-            vec_dev[i] = 1.0;
-          }
-        });
-  };
-
-private:
-  dealii::Portable::MatrixFree<dim, double> *data;
-};
-
 template <unsigned int dim>
 class InitialCondition : public dealii::Function<dim, double> {
 public:
@@ -230,8 +155,12 @@ public:
     triangulation.refine_global(4);
 
     setup_system();
-    compute_invm();
     apply_initial_condition();
+
+#ifdef DEBUG
+    utitilies::dump_vector_to_vtu<dim, double, dealii::MemorySpace::Default>(
+        invm, dof_handler, "invm_gpu");
+#endif
 
     pcout << "  Number of active cells: "
           << triangulation.n_global_active_cells() << "\n"
@@ -273,14 +202,15 @@ private:
     system_matrix->initialize_dof_vector(old_solution);
   };
 
-  void compute_invm() {
-    Invm<dim, degree> invm_computer(system_matrix->get_matrix_free_data());
-    invm_computer.compute(invm);
-  };
-
   void apply_initial_condition() {
     dealii::VectorTools::interpolate(
         mapping, dof_handler, InitialCondition<dim>(), ghost_solution_host);
+
+    dealii::LinearAlgebra::ReadWriteVector<double> rw_vector(
+        locally_owned_dofs);
+    rw_vector.import_elements(ghost_solution_host,
+                              dealii::VectorOperation::insert);
+    old_solution.import_elements(rw_vector, dealii::VectorOperation::insert);
   };
 
   void solve() {

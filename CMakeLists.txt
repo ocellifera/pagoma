@@ -5,6 +5,8 @@
 set(TARGET "pagoma")
 
 set(TARGET_SRC
+${CMAKE_SOURCE_DIR}/include/utilities.h
+${CMAKE_SOURCE_DIR}/include/invm.h
 ${TARGET}.cc
 )
 
