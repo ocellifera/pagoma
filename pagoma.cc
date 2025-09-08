@@ -28,9 +28,9 @@
 
 // Parameters for the mobility and gradient energy
 constexpr double mobility = 1.0;
-constexpr double gradient_energy = 1.0;
+constexpr double gradient_energy = 2.0;
 constexpr double timestep = 1e-4;
-constexpr unsigned total_increments = 10;
+constexpr unsigned total_increments = 100000;
 
 /**
  * Evaluation of the Allen-Cahn operator at each quadrature point.
@@ -46,7 +46,7 @@ public:
     auto value = fe_eval->get_value(q_point);
     auto gradient = fe_eval->get_gradient(q_point);
 
-    auto double_well = 4.0 * value * (1.0 - value) * (value - 0.5);
+    auto double_well = 4.0 * value * (value - 1.0) * (value - 0.5);
     auto value_submission = value - timestep * mobility * double_well;
     auto gradient_submission =
         -timestep * mobility * gradient_energy * gradient;
@@ -138,7 +138,25 @@ public:
 
   double value(const dealii::Point<dim> &point,
                unsigned int component = 0) const override {
-    return 0.5 + 0.1 * std::sin(point[0]) * std::cos(point[1]);
+    double scalar_value = 0.0;
+    double center[12][3] = {{0.1, 0.3, 0}, {0.8, 0.7, 0}, {0.5, 0.2, 0},
+                            {0.4, 0.4, 0}, {0.3, 0.9, 0}, {0.8, 0.1, 0},
+                            {0.9, 0.5, 0}, {0.0, 0.1, 0}, {0.1, 0.6, 0},
+                            {0.5, 0.6, 0}, {1, 1, 0},     {0.7, 0.95, 0}};
+    double rad[12] = {12, 14, 19, 16, 11, 12, 17, 15, 20, 10, 11, 14};
+    double dist = 0.0;
+    for (unsigned int i = 0; i < 12; i++) {
+      dist = 0.0;
+      for (unsigned int dir = 0; dir < dim; dir++) {
+        dist += (point[dir] - center[i][dir] * 100.0) *
+                (point[dir] - center[i][dir] * 100.0);
+      }
+      dist = std::sqrt(dist);
+
+      scalar_value += 0.5 * (1.0 - std::tanh((dist - rad[i]) / 1.5));
+    }
+    scalar_value = std::min(scalar_value, 1.0);
+    return scalar_value;
   };
 };
 
@@ -151,8 +169,8 @@ public:
                              mpi_communicator) == 0) {};
 
   void run() {
-    dealii::GridGenerator::hyper_cube(triangulation, 0.0, 100.0);
-    triangulation.refine_global(4);
+    dealii::GridGenerator::hyper_cube(triangulation, 0.0, 50.0);
+    triangulation.refine_global(7);
 
     setup_system();
     apply_initial_condition();
@@ -176,7 +194,7 @@ public:
          increment++) {
       solve();
 
-      if (increment % 1 == 0) {
+      if (increment % 1000 == 0) {
         output(increment);
       }
     }
@@ -243,6 +261,10 @@ private:
   void solve() {
     system_matrix->vmult(new_solution, old_solution);
     new_solution.scale(gpu_invm->get_invm());
+    new_solution.swap(old_solution);
+  };
+
+  void output(unsigned int increment) {
     dealii::LinearAlgebra::ReadWriteVector<double> rw_vector(
         locally_owned_dofs);
     rw_vector.import_elements(new_solution, dealii::VectorOperation::insert);
@@ -253,10 +275,6 @@ private:
 
     ghost_solution_host.update_ghost_values();
 
-    new_solution.swap(old_solution);
-  };
-
-  void output(unsigned int increment) const {
     dealii::DataOut<dim> data_out;
 
     data_out.attach_dof_handler(dof_handler);
