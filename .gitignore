@@ -1,3 +1,18 @@
+# CMake files
+CMakeCache.txt
+**/CMakeFiles/*
+Makefile
+cmake_install.cmake
+compile_commands.json
+**/.cache/*
+
+# Solution outputs
+*.vtu
+*.pvtu
+
+# Executable
+pagoma
+
 # Prerequisites
 *.d
 
