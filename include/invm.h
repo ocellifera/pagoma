@@ -1,3 +1,4 @@
+#include <deal.II/base/memory_space.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/lac/la_parallel_vector.h>
 #include <deal.II/matrix_free/evaluation_flags.h>
@@ -53,36 +54,91 @@ public:
 template <unsigned int dim, unsigned int degree>
 class Invm : public dealii::EnableObserverPointer {
 public:
-  Invm(dealii::Portable::MatrixFree<dim, double> *_data) : data(_data) {};
+  using DefaultVector =
+      dealii::LinearAlgebra::distributed::Vector<double,
+                                                 dealii::MemorySpace::Default>;
+  using HostVector =
+      dealii::LinearAlgebra::distributed::Vector<double,
+                                                 dealii::MemorySpace::Host>;
 
-  void compute(dealii::LinearAlgebra::distributed::Vector<
-               double, dealii::MemorySpace::Default> &vec) {
+  Invm(dealii::Portable::MatrixFree<dim, double> *_data) : data(_data) {
+    data->initialize_dof_vector(invm);
+  };
 
-    dealii::LinearAlgebra::distributed::Vector<double,
-                                               dealii::MemorySpace::Default>
-        dummy;
+  const DefaultVector &get_invm() const { return invm; }
 
-    data->initialize_dof_vector(vec);
+  void compute() {
+    DefaultVector dummy;
+
     data->initialize_dof_vector(dummy);
 
-    vec = 0.0;
-    LocalInvm<dim, degree> invm;
-    data->cell_loop(invm, dummy, vec);
+    invm = 0.0;
+    LocalInvm<dim, degree> local_invm_operator;
+    data->cell_loop(local_invm_operator, dummy, invm);
 
-    double *vec_dev = vec.get_values();
+    double *invm_dev = invm.get_values();
     const double tolerance = 1.0e-12;
 
     Kokkos::parallel_for(
-        vec.locally_owned_size(), KOKKOS_LAMBDA(int i) {
-          if (Kokkos::abs(vec_dev[i]) > tolerance) {
-            vec_dev[i] = 1.0 / vec_dev[i];
+        invm.locally_owned_size(), KOKKOS_LAMBDA(int i) {
+          if (Kokkos::abs(invm_dev[i]) > tolerance) {
+            invm_dev[i] = 1.0 / invm_dev[i];
           } else {
-            vec_dev[i] = 1.0;
+            invm_dev[i] = 1.0;
           }
         });
   };
 
 private:
   dealii::Portable::MatrixFree<dim, double> *data;
+
+  DefaultVector invm;
 };
 } // namespace GPU
+
+namespace CPU {
+template <unsigned int dim, unsigned int degree> class Invm {
+public:
+  using DefaultVector =
+      dealii::LinearAlgebra::distributed::Vector<double,
+                                                 dealii::MemorySpace::Default>;
+  using HostVector =
+      dealii::LinearAlgebra::distributed::Vector<double,
+                                                 dealii::MemorySpace::Host>;
+
+  Invm(dealii::MatrixFree<dim, double> *_data) : data(_data) {
+    data->initialize_dof_vector(invm);
+  };
+
+  const HostVector &get_invm() const { return invm; }
+
+  void compute() {
+    dealii::FEEvaluation<dim, degree, degree + 1, 1, double> fe_eval(*data);
+
+    for (unsigned int cell = 0; cell < data->n_cell_batches(); ++cell) {
+      fe_eval.reinit(cell);
+      for (const unsigned int q_point : fe_eval.quadrature_point_indices()) {
+        fe_eval.submit_value(dealii::VectorizedArray<double>(1.0), q_point);
+      }
+      fe_eval.integrate(dealii::EvaluationFlags::EvaluationFlags::values);
+      fe_eval.distribute_local_to_global(invm);
+    }
+    invm.compress(dealii::VectorOperation::add);
+
+    const double tolerance = 1.0e-12;
+
+    for (unsigned int i = 0; i < invm.locally_owned_size(); ++i) {
+      if (invm.local_element(i) > tolerance) {
+        invm.local_element(i) = 1.0 / invm.local_element(i);
+      } else {
+        invm.local_element(i) = 1.0;
+      }
+    }
+  }
+
+private:
+  dealii::MatrixFree<dim, double> *data;
+
+  HostVector invm;
+};
+} // namespace CPU

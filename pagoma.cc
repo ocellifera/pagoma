@@ -158,8 +158,10 @@ public:
     apply_initial_condition();
 
 #ifdef DEBUG
+    utitilies::dump_vector_to_vtu<dim, double, dealii::MemorySpace::Host>(
+        cpu_invm->get_invm(), dof_handler, "invm_cpu");
     utitilies::dump_vector_to_vtu<dim, double, dealii::MemorySpace::Default>(
-        invm, dof_handler, "invm_gpu");
+        gpu_invm->get_invm(), dof_handler, "invm_gpu");
 #endif
 
     pcout << "  Number of active cells: "
@@ -193,6 +195,31 @@ private:
     dealii::DoFTools::make_hanging_node_constraints(dof_handler, constraints);
     constraints.close();
 
+    // Create the cpu and gpu matrix free data objects
+    const dealii::MappingQ<dim> mapping(degree);
+    const dealii::QGaussLobatto<1> quadrature(degree + 1);
+    typename dealii::MatrixFree<dim, double>::AdditionalData
+        cpu_additional_data;
+    cpu_additional_data.mapping_update_flags = dealii::update_values |
+                                               dealii::update_gradients |
+                                               dealii::update_JxW_values;
+    cpu_data.reinit(mapping, dof_handler, constraints, quadrature,
+                    cpu_additional_data);
+
+    typename dealii::Portable::MatrixFree<dim, double>::AdditionalData
+        gpu_additional_data;
+    gpu_additional_data.mapping_update_flags = dealii::update_values |
+                                               dealii::update_gradients |
+                                               dealii::update_JxW_values;
+    gpu_data.reinit(mapping, dof_handler, constraints, quadrature,
+                    gpu_additional_data);
+
+    // Create the cpu and gpu invm objects and compute the invm
+    cpu_invm = std::make_unique<CPU::Invm<dim, degree>>(&cpu_data);
+    cpu_invm->compute();
+    gpu_invm = std::make_unique<GPU::Invm<dim, degree>>(&gpu_data);
+    gpu_invm->compute();
+
     system_matrix.reset(
         new AllenCahnOperator<dim, degree>(dof_handler, constraints));
 
@@ -215,6 +242,7 @@ private:
 
   void solve() {
     system_matrix->vmult(new_solution, old_solution);
+    new_solution.scale(gpu_invm->get_invm());
     dealii::LinearAlgebra::ReadWriteVector<double> rw_vector(
         locally_owned_dofs);
     rw_vector.import_elements(new_solution, dealii::VectorOperation::insert);
@@ -228,7 +256,7 @@ private:
     new_solution.swap(old_solution);
   };
 
-  void output(unsigned int incremenet) const {
+  void output(unsigned int increment) const {
     dealii::DataOut<dim> data_out;
 
     data_out.attach_dof_handler(dof_handler);
@@ -238,7 +266,7 @@ private:
     dealii::DataOutBase::VtkFlags flags;
     flags.compression_level = dealii::DataOutBase::CompressionLevel::best_speed;
     data_out.set_flags(flags);
-    data_out.write_vtu_with_pvtu_record("./", "solution", incremenet,
+    data_out.write_vtu_with_pvtu_record("./", "solution", increment,
                                         mpi_communicator, 6);
 
     pcout << "  solution norm: " << ghost_solution_host.l2_norm() << std::endl;
@@ -258,6 +286,13 @@ private:
   dealii::IndexSet locally_relevant_dofs;
 
   dealii::AffineConstraints<double> constraints;
+
+  dealii::MatrixFree<dim, double> cpu_data;
+  dealii::Portable::MatrixFree<dim, double> gpu_data;
+
+  std::unique_ptr<GPU::Invm<dim, degree>> gpu_invm;
+  std::unique_ptr<CPU::Invm<dim, degree>> cpu_invm;
+
   std::unique_ptr<AllenCahnOperator<dim, degree>> system_matrix;
 
   dealii::LinearAlgebra::distributed::Vector<double, dealii::MemorySpace::Host>
@@ -268,9 +303,6 @@ private:
   dealii::LinearAlgebra::distributed::Vector<double,
                                              dealii::MemorySpace::Default>
       old_solution;
-  dealii::LinearAlgebra::distributed::Vector<double,
-                                             dealii::MemorySpace::Default>
-      invm;
 
   dealii::ConditionalOStream pcout;
 };
