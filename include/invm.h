@@ -12,33 +12,38 @@ namespace GPU {
 /**
  * Evaluation of the inverted mass matrix at each quadrature point.
  */
-template <unsigned int dim, unsigned int degree> class InvmQuad {
+template<unsigned int dim, unsigned int degree>
+class InvmQuad
+{
 public:
   InvmQuad() = default;
 
-  DEAL_II_HOST_DEVICE void
-  operator()(dealii::Portable::FEEvaluation<dim, degree, degree + 1, 1, double>
-                 *fe_eval,
-             const unsigned int q_point) const {
+  DEAL_II_HOST_DEVICE void operator()(
+    dealii::Portable::FEEvaluation<dim, degree, degree + 1, 1, double>* fe_eval,
+    const unsigned int q_point) const
+  {
     fe_eval->submit_value(1.0, q_point);
   };
 
   static constexpr unsigned int n_q_points =
-      dealii::Utilities::pow(degree + 1, dim);
+    dealii::Utilities::pow(degree + 1, dim);
 
   static constexpr unsigned int n_local_dofs = n_q_points;
 };
 
-template <unsigned int dim, unsigned int degree> class LocalInvm {
+template<unsigned int dim, unsigned int degree>
+class LocalInvm
+{
 public:
   LocalInvm() = default;
 
   DEAL_II_HOST_DEVICE void operator()(
-      const typename dealii::Portable::MatrixFree<dim, double>::Data *data,
-      const dealii::Portable::DeviceVector<double> &src,
-      dealii::Portable::DeviceVector<double> &dst) const {
+    const typename dealii::Portable::MatrixFree<dim, double>::Data* data,
+    const dealii::Portable::DeviceVector<double>& src,
+    dealii::Portable::DeviceVector<double>& dst) const
+  {
     dealii::Portable::FEEvaluation<dim, degree, degree + 1, 1, double> fe_eval(
-        data);
+      data);
 
     fe_eval.apply_for_each_quad_point(InvmQuad<dim, degree>());
     fe_eval.integrate(dealii::EvaluationFlags::EvaluationFlags::values);
@@ -46,28 +51,32 @@ public:
   };
 
   static constexpr unsigned int n_q_points =
-      dealii::Utilities::pow(degree + 1, dim);
+    dealii::Utilities::pow(degree + 1, dim);
 
   static constexpr unsigned int n_local_dofs = n_q_points;
 };
 
-template <unsigned int dim, unsigned int degree>
-class Invm : public dealii::EnableObserverPointer {
+template<unsigned int dim, unsigned int degree>
+class Invm : public dealii::EnableObserverPointer
+{
 public:
   using DefaultVector =
-      dealii::LinearAlgebra::distributed::Vector<double,
-                                                 dealii::MemorySpace::Default>;
+    dealii::LinearAlgebra::distributed::Vector<double,
+                                               dealii::MemorySpace::Default>;
   using HostVector =
-      dealii::LinearAlgebra::distributed::Vector<double,
-                                                 dealii::MemorySpace::Host>;
+    dealii::LinearAlgebra::distributed::Vector<double,
+                                               dealii::MemorySpace::Host>;
 
-  Invm(dealii::Portable::MatrixFree<dim, double> *_data) : data(_data) {
+  Invm(dealii::Portable::MatrixFree<dim, double>* _data)
+    : data(_data)
+  {
     data->initialize_dof_vector(invm);
   };
 
-  const DefaultVector &get_invm() const { return invm; }
+  const DefaultVector& get_invm() const { return invm; }
 
-  void compute() {
+  void compute()
+  {
     DefaultVector dummy;
 
     data->initialize_dof_vector(dummy);
@@ -76,43 +85,48 @@ public:
     LocalInvm<dim, degree> local_invm_operator;
     data->cell_loop(local_invm_operator, dummy, invm);
 
-    double *invm_dev = invm.get_values();
+    double* invm_dev = invm.get_values();
     const double tolerance = 1.0e-12;
 
     Kokkos::parallel_for(
-        invm.locally_owned_size(), KOKKOS_LAMBDA(int i) {
-          if (Kokkos::abs(invm_dev[i]) > tolerance) {
-            invm_dev[i] = 1.0 / invm_dev[i];
-          } else {
-            invm_dev[i] = 1.0;
-          }
-        });
+      invm.locally_owned_size(), KOKKOS_LAMBDA(int i) {
+        if (Kokkos::abs(invm_dev[i]) > tolerance) {
+          invm_dev[i] = 1.0 / invm_dev[i];
+        } else {
+          invm_dev[i] = 1.0;
+        }
+      });
   };
 
 private:
-  dealii::Portable::MatrixFree<dim, double> *data;
+  dealii::Portable::MatrixFree<dim, double>* data;
 
   DefaultVector invm;
 };
 } // namespace GPU
 
 namespace CPU {
-template <unsigned int dim, unsigned int degree> class Invm {
+template<unsigned int dim, unsigned int degree>
+class Invm
+{
 public:
   using DefaultVector =
-      dealii::LinearAlgebra::distributed::Vector<double,
-                                                 dealii::MemorySpace::Default>;
+    dealii::LinearAlgebra::distributed::Vector<double,
+                                               dealii::MemorySpace::Default>;
   using HostVector =
-      dealii::LinearAlgebra::distributed::Vector<double,
-                                                 dealii::MemorySpace::Host>;
+    dealii::LinearAlgebra::distributed::Vector<double,
+                                               dealii::MemorySpace::Host>;
 
-  Invm(dealii::MatrixFree<dim, double> *_data) : data(_data) {
+  Invm(dealii::MatrixFree<dim, double>* _data)
+    : data(_data)
+  {
     data->initialize_dof_vector(invm);
   };
 
-  const HostVector &get_invm() const { return invm; }
+  const HostVector& get_invm() const { return invm; }
 
-  void compute() {
+  void compute()
+  {
     dealii::FEEvaluation<dim, degree, degree + 1, 1, double> fe_eval(*data);
 
     for (unsigned int cell = 0; cell < data->n_cell_batches(); ++cell) {
@@ -137,7 +151,7 @@ public:
   }
 
 private:
-  dealii::MatrixFree<dim, double> *data;
+  dealii::MatrixFree<dim, double>* data;
 
   HostVector invm;
 };

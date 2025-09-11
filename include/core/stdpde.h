@@ -2,17 +2,16 @@
 #pragma once
 
 // Standard library
-#include <iostream>
-#include <vector>
-#include <string>
-#include <memory>
-#include <map>
-#include <unordered_map>
 #include <algorithm>
+#include <iostream>
+#include <map>
+#include <memory>
 #include <ranges>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 // Third-party libraries
 #include <mpi.h>
-
 
 // Generic pagoma files
