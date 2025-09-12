@@ -50,3 +50,7 @@ else()
     FetchContent_MakeAvailable(Kokkos)
   endif()
 endif()
+
+# TODO: Check the the find_package version of kokkos has the right 
+# configuration options
+# TODO: Check a piece of test code to make sure it compiles
