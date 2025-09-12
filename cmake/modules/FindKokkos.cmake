@@ -1,6 +1,9 @@
 # Find the Kokkos package and make sure it compiles and runs some test
 # code
 
+set(KOKKOS_DIR "" CACHE PATH "An optional hint to a Kokkos installation")
+package_hints(Kokkos _kokkos_hints)
+
 set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "" FORCE)
 set(Kokkos_ENABLE_CUDA OFF CACHE BOOL "" FORCE)
 set(Kokkos_ENABLE_HIP OFF CACHE BOOL "" FORCE)
@@ -24,7 +27,7 @@ elseif(PAGOMA_USE_HIP)
 endif()
 
 if(PAGOMA_EXTERNAL_PACKAGES_ONLY)
-  find_package(Kokkos 4.4.00 REQUIRED CONFIG)
+  find_package(Kokkos 4.4.00 REQUIRED CONFIG HINTS ${_kokkos_hints})
 elseif(PAGOMA_EMBEDDED_PACKAGES_ONLY)
   FetchContent_Declare(
     Kokkos
@@ -34,7 +37,7 @@ elseif(PAGOMA_EMBEDDED_PACKAGES_ONLY)
   )
   FetchContent_MakeAvailable(Kokkos)
 else()
-  find_package(Kokkos 4.4.00 CONFIG)
+  find_package(Kokkos 4.4.00 CONFIG HINTS ${_kokkos_hints})
   if(Kokkos_FOUND)
     message(
       STATUS
@@ -51,6 +54,6 @@ else()
   endif()
 endif()
 
-# TODO: Check the the find_package version of kokkos has the right 
+# TODO: Check the the find_package version of kokkos has the right
 # configuration options
 # TODO: Check a piece of test code to make sure it compiles

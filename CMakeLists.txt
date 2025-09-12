@@ -47,6 +47,13 @@ include(CheckCXXSourceCompiles)
 # CheckCXXSourceRuns for checking that each package compiles & runs
 include(CheckCXXSourceRuns)
 
+# Include the macros we define in the project
+file(GLOB macro_files "${CMAKE_SOURCE_DIR}/cmake/macros/*.cmake")
+foreach(file ${macro_files})
+  message(STATUS "Included ${file}")
+  include(${file})
+endforeach()
+
 # Find MPI with checks
 include("cmake/modules/FindMPI.cmake")
 
@@ -60,19 +67,18 @@ include("cmake/modules/FindZLIB.cmake")
 include("cmake/modules/FindP4EST.cmake")
 
 # Find deal.II with checks
+include("cmake/modules/Finddeal.II.cmake")
 
 # Find Caliper with checks
 
 # Grab the source files
-set(PAGOMA_SOURCE
-pagoma.cc
-)
+set(PAGOMA_SOURCE pagoma.cc)
 
 # Create the library
 if(PAGOMA_BUILD_STATIC_LIB)
-	add_library(pagoma STATIC ${PAGOMA_SOURCE})
+  add_library(pagoma STATIC ${PAGOMA_SOURCE})
 else()
-	add_library(pagoma SHARED ${PAGOMA_SOURCE})
+  add_library(pagoma SHARED ${PAGOMA_SOURCE})
 endif()
 
 # Link the dependencies to our library
