@@ -15,9 +15,6 @@ CTestTestfile.cmake
 *.vtu
 *.pvtu
 
-# Executable
-pagoma
-
 # Prerequisites
 *.d
 
