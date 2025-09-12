@@ -7,6 +7,11 @@ cmake_minimum_required(VERSION 3.18)
 # Project declaration
 project(pagoma LANGUAGES CXX)
 
+# Check for in-source builds
+if(${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_BINARY_DIR})
+  message(FATAL_ERROR "In-source builds are not allowed.")
+endif()
+
 # Some brief user configuration options
 option(PAGOMA_BUILD_EXAMPLES "Build example applications" ON)
 option(PAGOMA_BUILD_TESTS "Build tests" ON)
