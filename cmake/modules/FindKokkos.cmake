@@ -1,6 +1,7 @@
 # Find the Kokkos package and make sure it compiles and runs some test
 # code
 
+set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "" FORCE)
 set(Kokkos_ENABLE_CUDA OFF CACHE BOOL "" FORCE)
 set(Kokkos_ENABLE_HIP OFF CACHE BOOL "" FORCE)
 set(Kokkos_ENABLE_CUDA_CONSTEXPR OFF CACHE BOOL "" FORCE)
