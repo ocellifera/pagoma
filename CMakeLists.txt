@@ -12,8 +12,16 @@ option(PAGOMA_BUILD_EXAMPLES "Build example applications" ON)
 option(PAGOMA_BUILD_TESTS "Build tests" ON)
 option(PAGOMA_BUILD_STATIC_LIB "Build static library only" OFF)
 option(PAGOMA_ENABLE_TIME_TRACE "Add -ftime-trace to Clang builds" OFF)
-option(PAGOMA_EXTERNAL_PACKAGES_ONLY "Try to use external packages whenever possible" OFF)
-option(PAGOMA_EMBEDDED_PACKAGES_ONLY "Try to use embedded packages whenever possible" OFF)
+option(
+  PAGOMA_EXTERNAL_PACKAGES_ONLY
+  "Try to use external packages whenever possible"
+  OFF
+)
+option(
+  PAGOMA_EMBEDDED_PACKAGES_ONLY
+  "Try to use embedded packages whenever possible"
+  OFF
+)
 option(PAGOMA_USE_CUDA "Use CUDA backend to target NVIDIA GPUs" OFF)
 option(PAGOMA_USE_HIP "Use HIP backend to target AMG GPUs" OFF)
 
@@ -35,4 +43,3 @@ include(CheckCXXSourceRuns)
 include("cmake/modules/FindMPI.cmake")
 
 # TODO: Add Kokkos fetch content
-
