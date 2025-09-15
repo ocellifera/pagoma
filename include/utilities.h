@@ -6,15 +6,18 @@
 #include <deal.II/lac/read_write_vector.h>
 #include <deal.II/lac/vector_operation.h>
 #include <deal.II/numerics/data_out.h>
+
 #include <type_traits>
 
 namespace utitilies {
 
-template <typename number, typename memory_space, typename memory_space_2>
-void transfer_solution_between_memory_spaces(
-    const dealii::LinearAlgebra::distributed::Vector<number, memory_space> &vec,
-    dealii::LinearAlgebra::distributed::Vector<number, memory_space_2> &vec2,
-    const dealii::IndexSet &locally_owned_dofs) {
+template<typename number, typename memory_space, typename memory_space_2>
+void
+transfer_solution_between_memory_spaces(
+  const dealii::LinearAlgebra::distributed::Vector<number, memory_space>& vec,
+  dealii::LinearAlgebra::distributed::Vector<number, memory_space_2>& vec2,
+  const dealii::IndexSet& locally_owned_dofs)
+{
 
   Assert(!(std::is_same_v<memory_space, memory_space_2>),
          dealii::ExcMessage("To transfer a vector between memory spaces, "
@@ -26,10 +29,13 @@ void transfer_solution_between_memory_spaces(
   vec2.import_elements(rw_vector, dealii::VectorOperation::insert);
 }
 
-template <unsigned int dim, typename number, typename memory_space>
-void dump_vector_to_vtu(
-    const dealii::LinearAlgebra::distributed::Vector<number, memory_space> &vec,
-    const dealii::DoFHandler<dim> &dof_handler, const std::string &filename) {
+template<unsigned int dim, typename number, typename memory_space>
+void
+dump_vector_to_vtu(
+  const dealii::LinearAlgebra::distributed::Vector<number, memory_space>& vec,
+  const dealii::DoFHandler<dim>& dof_handler,
+  const std::string& filename)
+{
 
   // TODO: Add checks that the dof handler and vector are the same size.
 
@@ -40,11 +46,11 @@ void dump_vector_to_vtu(
   // to this. It's not the most efficient, but this function should only be
   // called when debugging.
   dealii::LinearAlgebra::distributed::Vector<number, dealii::MemorySpace::Host>
-      host_vector(locally_owned_dofs, vec.get_mpi_communicator());
+    host_vector(locally_owned_dofs, vec.get_mpi_communicator());
 
   if constexpr (std::is_same_v<memory_space, dealii::MemorySpace::Default>) {
-    transfer_solution_between_memory_spaces(vec, host_vector,
-                                            locally_owned_dofs);
+    transfer_solution_between_memory_spaces(
+      vec, host_vector, locally_owned_dofs);
   } else if constexpr (std::is_same_v<memory_space,
                                       dealii::MemorySpace::Host>) {
     host_vector = vec;
