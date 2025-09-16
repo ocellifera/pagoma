@@ -1,3 +1,5 @@
+#pragma once
+
 #include <deal.II/base/data_out_base.h>
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/memory_space.h>

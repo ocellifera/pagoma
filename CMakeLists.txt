@@ -7,6 +7,7 @@ set(TARGET "pagoma")
 set(TARGET_SRC
 ${CMAKE_SOURCE_DIR}/include/utilities.h
 ${CMAKE_SOURCE_DIR}/include/invm.h
+${CMAKE_SOURCE_DIR}/include/mesh_manager.h
 ${TARGET}.cc
 )
 
