@@ -1,3 +1,5 @@
+#pragma once
+
 #include <deal.II/base/memory_space.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/lac/la_parallel_vector.h>

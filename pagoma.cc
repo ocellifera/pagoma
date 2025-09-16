@@ -25,6 +25,7 @@
 #include <type_traits>
 
 #include "include/invm.h"
+#include "include/mesh_manager.h"
 #include "include/utilities.h"
 
 // Parameters for the mobility and gradient energy
@@ -150,8 +151,8 @@ class InitialCondition : public dealii::Function<dim, double>
 public:
   InitialCondition() = default;
 
-  double value(const dealii::Point<dim>& point,
-               unsigned int component = 0) const override
+  double value([[maybe_unused]] const dealii::Point<dim>& point,
+               [[maybe_unused]] unsigned int component = 0) const override
   {
     double scalar_value = 0.0;
     double center[12][3] = {
@@ -182,17 +183,21 @@ class AllenCahnProblem
 public:
   AllenCahnProblem()
     : mpi_communicator(MPI_COMM_WORLD)
-    , triangulation(mpi_communicator)
+    , mesh_manager(mpi_communicator)
     , fe(degree)
-    , dof_handler(triangulation)
+    , dof_handler(*mesh_manager.get_triangulation())
     , mapping(degree)
     , pcout(std::cout,
             dealii::Utilities::MPI::this_mpi_process(mpi_communicator) == 0) {};
 
   void run()
   {
-    dealii::GridGenerator::hyper_cube(triangulation, 0.0, 50.0);
-    triangulation.refine_global(7);
+    pagoma::Cube<dim> cube(1, 0.0, 50.0);
+    mesh_manager.generate_triangulation(
+      [&](typename pagoma::MeshManager<dim>::Triangulation& triangulation) {
+        cube.generate(triangulation);
+      });
+    mesh_manager.refine(7);
 
     setup_system();
     apply_initial_condition();
@@ -205,7 +210,7 @@ public:
 #endif
 
     pcout << "  Number of active cells: "
-          << triangulation.n_global_active_cells() << "\n"
+          << mesh_manager.get_triangulation()->n_global_active_cells() << "\n"
           << "  Number of degrees of freedom: " << dof_handler.n_dofs()
           << std::endl;
 
@@ -318,7 +323,7 @@ private:
 
   MPI_Comm mpi_communicator;
 
-  dealii::parallel::distributed::Triangulation<dim> triangulation;
+  pagoma::MeshManager<dim> mesh_manager;
 
   const dealii::FE_Q<dim> fe;
 
