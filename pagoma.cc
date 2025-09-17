@@ -22,6 +22,7 @@
 #include <deal.II/numerics/vector_tools.h>
 
 #include <iterator>
+#include <random>
 #include <type_traits>
 
 #include "include/invm.h"
@@ -32,7 +33,7 @@
 constexpr double mobility = 1.0;
 constexpr double gradient_energy = 2.0;
 constexpr double timestep = 1e-4;
-constexpr unsigned total_increments = 100000;
+constexpr unsigned total_increments = 1000;
 
 /**
  * Evaluation of the Allen-Cahn operator at each quadrature point.
@@ -154,25 +155,13 @@ public:
   double value([[maybe_unused]] const dealii::Point<dim>& point,
                [[maybe_unused]] unsigned int component = 0) const override
   {
-    double scalar_value = 0.0;
-    double center[12][3] = {
-      { 0.1, 0.3, 0 }, { 0.8, 0.7, 0 }, { 0.5, 0.2, 0 }, { 0.4, 0.4, 0 },
-      { 0.3, 0.9, 0 }, { 0.8, 0.1, 0 }, { 0.9, 0.5, 0 }, { 0.0, 0.1, 0 },
-      { 0.1, 0.6, 0 }, { 0.5, 0.6, 0 }, { 1, 1, 0 },     { 0.7, 0.95, 0 }
-    };
-    double rad[12] = { 12, 14, 19, 16, 11, 12, 17, 15, 20, 10, 11, 14 };
-    double dist = 0.0;
-    for (unsigned int i = 0; i < 12; i++) {
-      dist = 0.0;
-      for (unsigned int dir = 0; dir < dim; dir++) {
-        dist += (point[dir] - center[i][dir] * 100.0) *
-                (point[dir] - center[i][dir] * 100.0);
-      }
-      dist = std::sqrt(dist);
+    double scalar_value = 0.5;
 
-      scalar_value += 0.5 * (1.0 - std::tanh((dist - rad[i]) / 1.5));
-    }
-    scalar_value = std::min(scalar_value, 1.0);
+    // Add a random perturbation
+    static thread_local std::mt19937 gen(std::random_device{}());
+    std::uniform_real_distribution<double> dist_random(0.0, 1.0);
+    scalar_value += dist_random(gen) * 0.1;
+
     return scalar_value;
   };
 };
@@ -192,12 +181,12 @@ public:
 
   void run()
   {
-    pagoma::Cube<dim> cube(1, 0.0, 50.0);
+    pagoma::Torus<dim> torus(1, 0.5);
     mesh_manager.generate_triangulation(
       [&](typename pagoma::MeshManager<dim>::Triangulation& triangulation) {
-        cube.generate(triangulation);
+        torus.generate(triangulation);
       });
-    mesh_manager.refine(7);
+    mesh_manager.refine(4);
 
     setup_system();
     apply_initial_condition();
@@ -285,6 +274,7 @@ private:
     rw_vector.import_elements(ghost_solution_host,
                               dealii::VectorOperation::insert);
     old_solution.import_elements(rw_vector, dealii::VectorOperation::insert);
+    new_solution.import_elements(rw_vector, dealii::VectorOperation::insert);
   };
 
   void solve()
@@ -361,7 +351,7 @@ main(int argc, char* argv[])
 {
   try {
     dealii::Utilities::MPI::MPI_InitFinalize mpi_init(argc, argv, 1);
-    AllenCahnProblem<2, 2> allen_cahn_problem;
+    AllenCahnProblem<3, 2> allen_cahn_problem;
     allen_cahn_problem.run();
   } catch (std::exception& exc) {
     std::cerr << "\n\n\nException on processing:\n"
