@@ -28,6 +28,7 @@
 #include "include/allen_cahn_operator.h"
 #include "include/invm.h"
 #include "include/mesh_manager.h"
+#include "include/timer.h"
 #include "include/utilities.h"
 
 template<unsigned int dim>
@@ -56,6 +57,7 @@ class AllenCahnProblem
 public:
   AllenCahnProblem()
     : mpi_communicator(MPI_COMM_WORLD)
+    , timer(mpi_communicator)
     , mesh_manager(mpi_communicator)
     , fe(degree)
     , dof_handler(*mesh_manager.get_triangulation())
@@ -65,6 +67,8 @@ public:
 
   void run()
   {
+    timer.start_section("mesh generation");
+
     pagoma::Cube<dim> cube(1, 0.0, 50.0);
     mesh_manager.generate_triangulation(
       [&](typename pagoma::MeshManager<dim>::Triangulation& triangulation) {
@@ -72,8 +76,15 @@ public:
       });
     mesh_manager.refine(7);
 
+    timer.end_section("mesh generation");
+
+    timer.start_section("setup");
     setup_system();
+    timer.end_section("setup");
+
+    timer.start_section("initial condition");
     apply_initial_condition();
+    timer.end_section("initial condition");
 
 #ifdef DEBUG
     utitilies::dump_vector_to_vtu<dim, double, dealii::MemorySpace::Host>(
@@ -88,14 +99,19 @@ public:
           << std::endl;
 
     pcout << "\nOutputting initial condition...\n" << std::flush;
+    timer.start_section("output");
     output(0);
+    timer.end_section("output");
 
     for (unsigned int increment = 1; increment <= total_increments;
          increment++) {
+      timer.start_section("solve");
       solve();
-
+      timer.end_section("solve");
       if (increment % 1000 == 0) {
+        timer.start_section("output");
         output(increment);
+        timer.end_section("output");
       }
     }
   };
@@ -196,6 +212,8 @@ private:
   };
 
   MPI_Comm mpi_communicator;
+
+  pagoma::Timer timer;
 
   pagoma::MeshManager<dim> mesh_manager;
 

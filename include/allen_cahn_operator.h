@@ -7,7 +7,7 @@
 constexpr double mobility = 1.0;
 constexpr double gradient_energy = 2.0;
 constexpr double timestep = 1e-4;
-constexpr unsigned total_increments = 1000;
+constexpr unsigned total_increments = 10000;
 
 /**
  * Evaluation of the Allen-Cahn operator at each quadrature point.
