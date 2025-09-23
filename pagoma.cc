@@ -252,7 +252,8 @@ int
 main(int argc, char* argv[])
 {
   try {
-    dealii::Utilities::MPI::MPI_InitFinalize mpi_init(argc, argv, dealii::numbers::invalid_unsigned_int);
+    dealii::Utilities::MPI::MPI_InitFinalize mpi_init(
+      argc, argv, dealii::numbers::invalid_unsigned_int);
     AllenCahnProblem<2, 2> allen_cahn_problem;
     allen_cahn_problem.run();
   } catch (std::exception& exc) {
