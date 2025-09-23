@@ -22,128 +22,14 @@
 #include <deal.II/numerics/vector_tools.h>
 
 #include <iterator>
+#include <random>
 #include <type_traits>
 
+#include "include/allen_cahn_operator.h"
 #include "include/invm.h"
 #include "include/mesh_manager.h"
+#include "include/timer.h"
 #include "include/utilities.h"
-
-// Parameters for the mobility and gradient energy
-constexpr double mobility = 1.0;
-constexpr double gradient_energy = 2.0;
-constexpr double timestep = 1e-4;
-constexpr unsigned total_increments = 100000;
-
-/**
- * Evaluation of the Allen-Cahn operator at each quadrature point.
- */
-template<unsigned int dim, unsigned int degree>
-class AllenCahnOperatorQuad
-{
-public:
-  AllenCahnOperatorQuad() = default;
-
-  DEAL_II_HOST_DEVICE void operator()(
-    dealii::Portable::FEEvaluation<dim, degree, degree + 1, 1, double>* fe_eval,
-    const unsigned int q_point) const
-  {
-    auto value = fe_eval->get_value(q_point);
-    auto gradient = fe_eval->get_gradient(q_point);
-
-    auto double_well = 4.0 * value * (value - 1.0) * (value - 0.5);
-    auto value_submission = value - timestep * mobility * double_well;
-    auto gradient_submission =
-      -timestep * mobility * gradient_energy * gradient;
-
-    fe_eval->submit_value(value_submission, q_point);
-    fe_eval->submit_gradient(gradient_submission, q_point);
-  };
-
-  static constexpr unsigned int n_q_points =
-    dealii::Utilities::pow(degree + 1, dim);
-
-  static constexpr unsigned int n_local_dofs = n_q_points;
-};
-
-/**
- * Local evaluation of the Allen-Cahn operator
- */
-template<unsigned int dim, unsigned int degree>
-class LocalAllenCahnOperator
-{
-public:
-  LocalAllenCahnOperator() = default;
-
-  DEAL_II_HOST_DEVICE void operator()(
-    const typename dealii::Portable::MatrixFree<dim, double>::Data* data,
-    const dealii::Portable::DeviceVector<double>& src,
-    dealii::Portable::DeviceVector<double>& dst) const
-  {
-    dealii::Portable::FEEvaluation<dim, degree, degree + 1, 1, double> fe_eval(
-      data);
-
-    fe_eval.read_dof_values(src);
-    fe_eval.evaluate(dealii::EvaluationFlags::EvaluationFlags::values |
-                     dealii::EvaluationFlags::EvaluationFlags::gradients);
-    fe_eval.apply_for_each_quad_point(AllenCahnOperatorQuad<dim, degree>());
-    fe_eval.integrate(dealii::EvaluationFlags::EvaluationFlags::values |
-                      dealii::EvaluationFlags::EvaluationFlags::gradients);
-    fe_eval.distribute_local_to_global(dst);
-  };
-
-  static constexpr unsigned int n_q_points =
-    dealii::Utilities::pow(degree + 1, dim);
-
-  static constexpr unsigned int n_local_dofs = n_q_points;
-};
-
-/**
- * Allen-Cahn operator
- */
-template<unsigned int dim, unsigned int degree>
-class AllenCahnOperator : public dealii::EnableObserverPointer
-{
-public:
-  AllenCahnOperator(const dealii::DoFHandler<dim>& dof_handler,
-                    const dealii::AffineConstraints<double>& constraints)
-  {
-    const dealii::MappingQ<dim> mapping(degree);
-    typename dealii::Portable::MatrixFree<dim, double>::AdditionalData
-      additional_data;
-    additional_data.mapping_update_flags = dealii::update_values |
-                                           dealii::update_gradients |
-                                           dealii::update_JxW_values;
-    const dealii::QGaussLobatto<1> quadrature(degree + 1);
-    data.reinit(mapping, dof_handler, constraints, quadrature, additional_data);
-  };
-
-  void vmult(dealii::LinearAlgebra::distributed::
-               Vector<double, dealii::MemorySpace::Default>& dst,
-             const dealii::LinearAlgebra::distributed::
-               Vector<double, dealii::MemorySpace::Default>& src) const
-  {
-    dst = 0.0;
-    LocalAllenCahnOperator<dim, degree> allen_cahn_operator;
-    data.cell_loop(allen_cahn_operator, src, dst);
-    data.copy_constrained_values(src, dst);
-  };
-
-  void initialize_dof_vector(
-    dealii::LinearAlgebra::distributed::Vector<double,
-                                               dealii::MemorySpace::Default>&
-      vec) const
-  {
-    data.initialize_dof_vector(vec);
-  };
-
-  dealii::Portable::MatrixFree<dim, double>* get_matrix_free_data()
-  {
-    return &data;
-  }
-
-private:
-  dealii::Portable::MatrixFree<dim, double> data;
-};
 
 template<unsigned int dim>
 class InitialCondition : public dealii::Function<dim, double>
@@ -154,25 +40,13 @@ public:
   double value([[maybe_unused]] const dealii::Point<dim>& point,
                [[maybe_unused]] unsigned int component = 0) const override
   {
-    double scalar_value = 0.0;
-    double center[12][3] = {
-      { 0.1, 0.3, 0 }, { 0.8, 0.7, 0 }, { 0.5, 0.2, 0 }, { 0.4, 0.4, 0 },
-      { 0.3, 0.9, 0 }, { 0.8, 0.1, 0 }, { 0.9, 0.5, 0 }, { 0.0, 0.1, 0 },
-      { 0.1, 0.6, 0 }, { 0.5, 0.6, 0 }, { 1, 1, 0 },     { 0.7, 0.95, 0 }
-    };
-    double rad[12] = { 12, 14, 19, 16, 11, 12, 17, 15, 20, 10, 11, 14 };
-    double dist = 0.0;
-    for (unsigned int i = 0; i < 12; i++) {
-      dist = 0.0;
-      for (unsigned int dir = 0; dir < dim; dir++) {
-        dist += (point[dir] - center[i][dir] * 100.0) *
-                (point[dir] - center[i][dir] * 100.0);
-      }
-      dist = std::sqrt(dist);
+    double scalar_value = 0.5;
 
-      scalar_value += 0.5 * (1.0 - std::tanh((dist - rad[i]) / 1.5));
-    }
-    scalar_value = std::min(scalar_value, 1.0);
+    // Add a random perturbation
+    static thread_local std::mt19937 gen(std::random_device{}());
+    std::uniform_real_distribution<double> dist_random(0.0, 1.0);
+    scalar_value += dist_random(gen) * 0.1;
+
     return scalar_value;
   };
 };
@@ -183,6 +57,7 @@ class AllenCahnProblem
 public:
   AllenCahnProblem()
     : mpi_communicator(MPI_COMM_WORLD)
+    , timer(mpi_communicator)
     , mesh_manager(mpi_communicator)
     , fe(degree)
     , dof_handler(*mesh_manager.get_triangulation())
@@ -192,6 +67,8 @@ public:
 
   void run()
   {
+    timer.start_section("mesh generation");
+
     pagoma::Cube<dim> cube(1, 0.0, 50.0);
     mesh_manager.generate_triangulation(
       [&](typename pagoma::MeshManager<dim>::Triangulation& triangulation) {
@@ -199,8 +76,15 @@ public:
       });
     mesh_manager.refine(7);
 
+    timer.end_section("mesh generation");
+
+    timer.start_section("setup");
     setup_system();
+    timer.end_section("setup");
+
+    timer.start_section("initial condition");
     apply_initial_condition();
+    timer.end_section("initial condition");
 
 #ifdef DEBUG
     utitilies::dump_vector_to_vtu<dim, double, dealii::MemorySpace::Host>(
@@ -215,14 +99,19 @@ public:
           << std::endl;
 
     pcout << "\nOutputting initial condition...\n" << std::flush;
+    timer.start_section("output");
     output(0);
+    timer.end_section("output");
 
     for (unsigned int increment = 1; increment <= total_increments;
          increment++) {
+      timer.start_section("solve");
       solve();
-
+      timer.end_section("solve");
       if (increment % 1000 == 0) {
+        timer.start_section("output");
         output(increment);
+        timer.end_section("output");
       }
     }
   };
@@ -285,6 +174,7 @@ private:
     rw_vector.import_elements(ghost_solution_host,
                               dealii::VectorOperation::insert);
     old_solution.import_elements(rw_vector, dealii::VectorOperation::insert);
+    new_solution.import_elements(rw_vector, dealii::VectorOperation::insert);
   };
 
   void solve()
@@ -323,6 +213,8 @@ private:
 
   MPI_Comm mpi_communicator;
 
+  pagoma::Timer timer;
+
   pagoma::MeshManager<dim> mesh_manager;
 
   const dealii::FE_Q<dim> fe;
@@ -360,7 +252,8 @@ int
 main(int argc, char* argv[])
 {
   try {
-    dealii::Utilities::MPI::MPI_InitFinalize mpi_init(argc, argv, 1);
+    dealii::Utilities::MPI::MPI_InitFinalize mpi_init(
+      argc, argv, dealii::numbers::invalid_unsigned_int);
     AllenCahnProblem<2, 2> allen_cahn_problem;
     allen_cahn_problem.run();
   } catch (std::exception& exc) {

@@ -118,15 +118,47 @@ private:
 };
 
 template<unsigned int dim, unsigned int spacedim = dim>
-class Rectangle : public MeshBase<dim, spacedim>
-{};
+class Torus : public MeshBase<dim, spacedim>
+{
+public:
+  Torus(double _center_radius = 0.0,
+        double _inner_radius = 0.0,
+        unsigned int _n_cells = 6,
+        double _phi = 2.0 * dealii::numbers::PI)
+    : center_radius(_center_radius)
+    , inner_radius(_inner_radius)
+    , n_cells(_n_cells)
+    , phi(_phi) {};
 
-template<unsigned int dim, unsigned int spacedim = dim>
-class Sphere : public MeshBase<dim, spacedim>
-{};
+  void generate(
+    typename MeshManager<dim, spacedim>::Triangulation& triangulation) override
+  {
+    Assert(triangulation.n_cells() == 0,
+           dealii::ExcMessage(
+             "The triangulation must have 0 active cells before generating. "
+             "Please make sure to call clear beforehand"));
+    dealii::GridGenerator::torus(
+      triangulation, center_radius, inner_radius, n_cells, phi);
+  }
 
-template<unsigned int dim, unsigned int spacedim = dim>
-class Cylinder : public MeshBase<dim, spacedim>
-{};
+  void clear() override
+  {
+    center_radius = 0.0;
+    inner_radius = 0.0;
+    n_cells = 6;
+    phi = 2.0 * dealii::numbers::PI;
+  }
+
+  void print_summary() const override
+  {
+    // TODO:Implement this
+  }
+
+private:
+  double center_radius = 0.0;
+  double inner_radius = 0.0;
+  unsigned int n_cells = 6;
+  double phi = 2.0 * dealii::numbers::PI;
+};
 
 }
