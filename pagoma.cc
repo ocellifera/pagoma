@@ -2,7 +2,6 @@
 #include <deal.II/base/config.h>
 #include <deal.II/base/data_out_base.h>
 #include <deal.II/base/exceptions.h>
-#include <deal.II/base/memory_space.h>
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/utilities.h>
@@ -18,6 +17,7 @@
 
 #include <iterator>
 #include <random>
+#include <stdexcept>
 #include <type_traits>
 
 #include "include/allen_cahn_operator.h"
@@ -25,6 +25,8 @@
 #include "include/dof_manager.h"
 #include "include/invm.h"
 #include "include/mesh_manager.h"
+#include "include/parameters.h"
+#include "include/solution_manager.h"
 #include "include/timer.h"
 #include "include/utilities.h"
 
@@ -48,12 +50,16 @@ public:
   };
 };
 
-template<unsigned int dim, unsigned int degree>
+template<unsigned int dim,
+         unsigned int spacedim,
+         unsigned int degree,
+         typename number>
 class AllenCahnProblem
 {
 public:
-  AllenCahnProblem()
-    : mpi_communicator(MPI_COMM_WORLD)
+  AllenCahnProblem(pagoma::Parameters _parameters)
+    : parameters(_parameters)
+    , mpi_communicator(MPI_COMM_WORLD)
     , timer(mpi_communicator)
     , mesh_manager(mpi_communicator)
     , fe(degree)
@@ -170,7 +176,7 @@ private:
 
   void solve()
   {
-    system_matrix->vmult(new_solution, old_solution);
+    system_matrix->vmult(new_solution, old_solution, parameters.timestep);
     new_solution.scale(gpu_invm->get_invm());
     new_solution.swap(old_solution);
   };
@@ -200,6 +206,8 @@ private:
 
     pcout << "  solution norm: " << ghost_solution_host.l2_norm() << std::endl;
   };
+
+  pagoma::Parameters parameters;
 
   MPI_Comm mpi_communicator;
 
@@ -235,14 +243,112 @@ private:
   dealii::ConditionalOStream pcout;
 };
 
+template<unsigned int dim,
+         unsigned int spacedim,
+         unsigned int degree,
+         typename number>
+void
+run_problem(const pagoma::Parameters& parameters)
+{
+  AllenCahnProblem<dim, spacedim, degree, number> problem(parameters);
+  problem.run();
+}
+
+template<unsigned int dim, unsigned int spacedim, unsigned int degree>
+void
+dispatch_number(const pagoma::Parameters& parameters)
+{
+  switch (parameters.number) {
+    case pagoma::Parameters::RealNumber::FLOAT:
+      run_problem<dim, spacedim, degree, float>(parameters);
+      break;
+    case pagoma::Parameters::RealNumber::DOUBLE:
+      run_problem<dim, spacedim, degree, double>(parameters);
+      break;
+    default:
+      throw std::runtime_error("Unsupport real number type");
+  }
+}
+
+template<unsigned int dim, unsigned int spacedim>
+void
+dispatch_degree(const pagoma::Parameters& parameters)
+{
+  switch (parameters.degree) {
+    case 1:
+      dispatch_number<dim, spacedim, 1>(parameters);
+      break;
+    case 2:
+      dispatch_number<dim, spacedim, 2>(parameters);
+      break;
+    case 3:
+      dispatch_number<dim, spacedim, 3>(parameters);
+      break;
+    case 4:
+      dispatch_number<dim, spacedim, 4>(parameters);
+      break;
+    case 5:
+      dispatch_number<dim, spacedim, 5>(parameters);
+      break;
+    case 6:
+      dispatch_number<dim, spacedim, 6>(parameters);
+      break;
+    default:
+      throw std::runtime_error("Unsupported degree");
+  }
+}
+
+template<unsigned int dim>
+void
+dispatch_spacedim(const pagoma::Parameters& parameters)
+{
+  switch (parameters.spacedim) {
+    case 1:
+      dispatch_degree<dim, 1>(parameters);
+      break;
+    case 2:
+      dispatch_degree<dim, 2>(parameters);
+      break;
+    case 3:
+      dispatch_degree<dim, 3>(parameters);
+      break;
+    default:
+      throw std::runtime_error("Unsupported spacedim");
+  }
+}
+
+void
+dispatch_dim(const pagoma::Parameters& parameters)
+{
+  switch (parameters.dim) {
+    case 1:
+      dispatch_spacedim<1>(parameters);
+      break;
+    case 2:
+      dispatch_spacedim<2>(parameters);
+      break;
+    case 3:
+      dispatch_spacedim<3>(parameters);
+      break;
+    default:
+      throw std::runtime_error("Unsupported dim");
+  }
+}
+
 int
 main(int argc, char* argv[])
 {
   try {
     dealii::Utilities::MPI::MPI_InitFinalize mpi_init(
       argc, argv, dealii::numbers::invalid_unsigned_int);
-    AllenCahnProblem<2, 2> allen_cahn_problem;
-    allen_cahn_problem.run();
+
+    // Grab the parameters
+    pagoma::ParameterHandler parameter_handler;
+    pagoma::Parameters parameters;
+    parameter_handler.populate(parameters, "parameters.prm");
+
+    dispatch_dim(parameters);
+
   } catch (std::exception& exc) {
     std::cerr << "\n\n\nException on processing:\n"
               << exc.what() << "\nAborting!\n\n\n"
