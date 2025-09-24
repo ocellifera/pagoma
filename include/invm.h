@@ -10,6 +10,7 @@
 #include <deal.II/matrix_free/portable_fe_evaluation.h>
 #include <deal.II/matrix_free/portable_matrix_free.h>
 
+namespace pagoma {
 namespace GPU {
 /**
  * Evaluation of the inverted mass matrix at each quadrature point.
@@ -158,3 +159,4 @@ private:
   HostVector invm;
 };
 } // namespace CPU
+}

@@ -6,7 +6,6 @@
 // Parameters for the mobility and gradient energy
 constexpr double mobility = 1.0;
 constexpr double gradient_energy = 2.0;
-constexpr double timestep = 1e-4;
 constexpr unsigned total_increments = 10000;
 
 /**
@@ -16,7 +15,8 @@ template<unsigned int dim, unsigned int degree>
 class AllenCahnOperatorQuad
 {
 public:
-  AllenCahnOperatorQuad() = default;
+  DEAL_II_HOST_DEVICE AllenCahnOperatorQuad(double _timestep)
+    : timestep(_timestep) {};
 
   DEAL_II_HOST_DEVICE void operator()(
     dealii::Portable::FEEvaluation<dim, degree, degree + 1, 1, double>* fe_eval,
@@ -34,6 +34,8 @@ public:
     fe_eval->submit_gradient(gradient_submission, q_point);
   };
 
+  double timestep = 0.0;
+
   static constexpr unsigned int n_q_points =
     dealii::Utilities::pow(degree + 1, dim);
 
@@ -47,7 +49,8 @@ template<unsigned int dim, unsigned int degree>
 class LocalAllenCahnOperator
 {
 public:
-  LocalAllenCahnOperator() = default;
+  DEAL_II_HOST_DEVICE LocalAllenCahnOperator(double _timestep)
+    : timestep(_timestep) {};
 
   DEAL_II_HOST_DEVICE void operator()(
     const typename dealii::Portable::MatrixFree<dim, double>::Data* data,
@@ -60,11 +63,14 @@ public:
     fe_eval.read_dof_values(src);
     fe_eval.evaluate(dealii::EvaluationFlags::EvaluationFlags::values |
                      dealii::EvaluationFlags::EvaluationFlags::gradients);
-    fe_eval.apply_for_each_quad_point(AllenCahnOperatorQuad<dim, degree>());
+    fe_eval.apply_for_each_quad_point(
+      AllenCahnOperatorQuad<dim, degree>(timestep));
     fe_eval.integrate(dealii::EvaluationFlags::EvaluationFlags::values |
                       dealii::EvaluationFlags::EvaluationFlags::gradients);
     fe_eval.distribute_local_to_global(dst);
   };
+
+  double timestep = 0.0;
 
   static constexpr unsigned int n_q_points =
     dealii::Utilities::pow(degree + 1, dim);
@@ -95,10 +101,11 @@ public:
   void vmult(dealii::LinearAlgebra::distributed::
                Vector<double, dealii::MemorySpace::Default>& dst,
              const dealii::LinearAlgebra::distributed::
-               Vector<double, dealii::MemorySpace::Default>& src) const
+               Vector<double, dealii::MemorySpace::Default>& src,
+             double timestep) const
   {
     dst = 0.0;
-    LocalAllenCahnOperator<dim, degree> allen_cahn_operator;
+    LocalAllenCahnOperator<dim, degree> allen_cahn_operator(timestep);
     data.cell_loop(allen_cahn_operator, src, dst);
     data.copy_constrained_values(src, dst);
   };
