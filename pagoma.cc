@@ -138,9 +138,9 @@ private:
                     gpu_additional_data);
 
     // Create the cpu and gpu invm objects and compute the invm
-    cpu_invm = std::make_unique<CPU::Invm<dim, degree>>(&cpu_data);
+    cpu_invm = std::make_unique<pagoma::CPU::Invm<dim, degree>>(&cpu_data);
     cpu_invm->compute();
-    gpu_invm = std::make_unique<GPU::Invm<dim, degree>>(&gpu_data);
+    gpu_invm = std::make_unique<pagoma::GPU::Invm<dim, degree>>(&gpu_data);
     gpu_invm->compute();
 
     system_matrix.reset(new AllenCahnOperator<dim, degree>(
@@ -218,8 +218,8 @@ private:
   dealii::MatrixFree<dim, double> cpu_data;
   dealii::Portable::MatrixFree<dim, double> gpu_data;
 
-  std::unique_ptr<GPU::Invm<dim, degree>> gpu_invm;
-  std::unique_ptr<CPU::Invm<dim, degree>> cpu_invm;
+  std::unique_ptr<pagoma::GPU::Invm<dim, degree>> gpu_invm;
+  std::unique_ptr<pagoma::CPU::Invm<dim, degree>> cpu_invm;
 
   std::unique_ptr<AllenCahnOperator<dim, degree>> system_matrix;
 
