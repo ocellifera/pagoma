@@ -13,6 +13,10 @@ if(NOT ${deal.II_FOUND})
 	message(FATAL_ERROR "Could not find a valid deal.II installation.")
 endif()
 
+if(NOT DEAL_II_WITH_MPI OR NOT DEAL_II_WITH_P4EST OR NOT DEAL_II_WITH_LAPACK)
+	message(FATAL_ERROR "Could not find a valid deal.II installation.")
+endif()
+
 deal_ii_initialize_cached_variables()
 project(${TARGET})
 deal_ii_invoke_autopilot()

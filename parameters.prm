@@ -2,6 +2,6 @@ set dim = 2
 set spacedim = 2
 
 set degree = 2
-set real number = double
+set real number = float
 
 set time step = 1.0e-4
