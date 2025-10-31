@@ -156,8 +156,8 @@ private:
       dof_manager.get_dof_handler(), constraint_manager.get_constraints()));
 
     host_solutions.reinit(dof_manager, mpi_communicator);
-    system_matrix->initialize_dof_vector(device_solutions.get_solution(1));
-    system_matrix->initialize_dof_vector(device_solutions.get_solution(0));
+    device_solutions.reinit(*system_matrix, 0);
+    device_solutions.reinit(*system_matrix, 1);
   };
 
   void apply_initial_condition()
