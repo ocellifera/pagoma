@@ -147,9 +147,11 @@ private:
                     gpu_additional_data);
 
     // Create the cpu and gpu invm objects and compute the invm
-    cpu_invm = std::make_unique<pagoma::CPU::Invm<dim, degree, number>>(&cpu_data);
+    cpu_invm =
+      std::make_unique<pagoma::CPU::Invm<dim, degree, number>>(&cpu_data);
     cpu_invm->compute();
-    gpu_invm = std::make_unique<pagoma::GPU::Invm<dim, degree, number>>(&gpu_data);
+    gpu_invm =
+      std::make_unique<pagoma::GPU::Invm<dim, degree, number>>(&gpu_data);
     gpu_invm->compute();
 
     system_matrix.reset(new AllenCahnOperator<dim, degree, number>(
@@ -171,13 +173,17 @@ private:
       dof_manager.get_locally_owned_dofs());
     rw_vector.import_elements(host_solutions.get_solution(),
                               dealii::VectorOperation::insert);
-    device_solutions.get_solution(0).import_elements(rw_vector, dealii::VectorOperation::insert);
-    device_solutions.get_solution(1).import_elements(rw_vector, dealii::VectorOperation::insert);
+    device_solutions.get_solution(0).import_elements(
+      rw_vector, dealii::VectorOperation::insert);
+    device_solutions.get_solution(1).import_elements(
+      rw_vector, dealii::VectorOperation::insert);
   };
 
   void solve()
   {
-    system_matrix->vmult(device_solutions.get_solution(1), device_solutions.get_solution(0), parameters.timestep);
+    system_matrix->vmult(device_solutions.get_solution(1),
+                         device_solutions.get_solution(0),
+                         parameters.timestep);
     device_solutions.get_solution(1).scale(gpu_invm->get_invm());
     device_solutions.get_solution(1).swap(device_solutions.get_solution(0));
   };
@@ -186,9 +192,10 @@ private:
   {
     dealii::LinearAlgebra::ReadWriteVector<number> rw_vector(
       dof_manager.get_locally_owned_dofs());
-    rw_vector.import_elements(device_solutions.get_solution(1), dealii::VectorOperation::insert);
-    host_solutions.get_solution().import_elements(rw_vector,
-                                        dealii::VectorOperation::insert);
+    rw_vector.import_elements(device_solutions.get_solution(1),
+                              dealii::VectorOperation::insert);
+    host_solutions.get_solution().import_elements(
+      rw_vector, dealii::VectorOperation::insert);
 
     constraint_manager.apply(host_solutions.get_solution());
     host_solutions.get_solution().update_ghost_values();
@@ -205,7 +212,8 @@ private:
     data_out.write_vtu_with_pvtu_record(
       "./", "solution", increment, mpi_communicator, 6);
 
-    pcout << "  solution norm: " << host_solutions.get_solution().l2_norm() << std::endl;
+    pcout << "  solution norm: " << host_solutions.get_solution().l2_norm()
+          << std::endl;
   };
 
   pagoma::Parameters parameters;
@@ -233,7 +241,8 @@ private:
   std::unique_ptr<AllenCahnOperator<dim, degree, number>> system_matrix;
 
   pagoma::SolutionManager<number, dealii::MemorySpace::Host> host_solutions;
-  pagoma::SolutionManager<number, dealii::MemorySpace::Default> device_solutions;
+  pagoma::SolutionManager<number, dealii::MemorySpace::Default>
+    device_solutions;
 
   dealii::ConditionalOStream pcout;
 };
