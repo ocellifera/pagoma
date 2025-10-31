@@ -1,2 +1,10 @@
 # Pagoma
-A short code that implements an alloy solidification model with both CPU and GPU infrastructure in deal.II
+[![Format Checks](https://github.com/ocellifera/pagoma/actions/workflows/format-check.yml/badge.svg)](https://github.com/ocellifera/pagoma/actions/workflows/format-check.yml)
+
+pagoma is a PDE solving framework built on the deal.II library.
+
+## Install
+
+## Design goals
+
+## Examples
