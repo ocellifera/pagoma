@@ -2,6 +2,7 @@
 #include <deal.II/base/config.h>
 #include <deal.II/base/data_out_base.h>
 #include <deal.II/base/exceptions.h>
+#include <deal.II/base/memory_space.h>
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/utilities.h>
@@ -64,6 +65,8 @@ public:
     , mesh_manager(mpi_communicator)
     , fe(degree)
     , mapping(degree)
+    , host_solutions(1)
+    , device_solutions(2)
     , pcout(std::cout,
             dealii::Utilities::MPI::this_mpi_process(mpi_communicator) == 0) {};
 
@@ -152,11 +155,9 @@ private:
     system_matrix.reset(new AllenCahnOperator<dim, degree>(
       dof_manager.get_dof_handler(), constraint_manager.get_constraints()));
 
-    ghost_solution_host.reinit(dof_manager.get_locally_owned_dofs(),
-                               dof_manager.get_locally_relevant_dofs(),
-                               mpi_communicator);
-    system_matrix->initialize_dof_vector(new_solution);
-    system_matrix->initialize_dof_vector(old_solution);
+    host_solutions.reinit(dof_manager, mpi_communicator);
+    system_matrix->initialize_dof_vector(device_solutions.get_solution(1));
+    system_matrix->initialize_dof_vector(device_solutions.get_solution(0));
   };
 
   void apply_initial_condition()
@@ -164,38 +165,38 @@ private:
     dealii::VectorTools::interpolate(mapping,
                                      dof_manager.get_dof_handler(),
                                      InitialCondition<dim>(),
-                                     ghost_solution_host);
+                                     host_solutions.get_solution());
 
     dealii::LinearAlgebra::ReadWriteVector<double> rw_vector(
       dof_manager.get_locally_owned_dofs());
-    rw_vector.import_elements(ghost_solution_host,
+    rw_vector.import_elements(host_solutions.get_solution(),
                               dealii::VectorOperation::insert);
-    old_solution.import_elements(rw_vector, dealii::VectorOperation::insert);
-    new_solution.import_elements(rw_vector, dealii::VectorOperation::insert);
+    device_solutions.get_solution(0).import_elements(rw_vector, dealii::VectorOperation::insert);
+    device_solutions.get_solution(1).import_elements(rw_vector, dealii::VectorOperation::insert);
   };
 
   void solve()
   {
-    system_matrix->vmult(new_solution, old_solution, parameters.timestep);
-    new_solution.scale(gpu_invm->get_invm());
-    new_solution.swap(old_solution);
+    system_matrix->vmult(device_solutions.get_solution(1), device_solutions.get_solution(0), parameters.timestep);
+    device_solutions.get_solution(1).scale(gpu_invm->get_invm());
+    device_solutions.get_solution(1).swap(device_solutions.get_solution(0));
   };
 
   void output(unsigned int increment)
   {
     dealii::LinearAlgebra::ReadWriteVector<double> rw_vector(
       dof_manager.get_locally_owned_dofs());
-    rw_vector.import_elements(new_solution, dealii::VectorOperation::insert);
-    ghost_solution_host.import_elements(rw_vector,
+    rw_vector.import_elements(device_solutions.get_solution(1), dealii::VectorOperation::insert);
+    host_solutions.get_solution().import_elements(rw_vector,
                                         dealii::VectorOperation::insert);
 
-    constraint_manager.apply(ghost_solution_host);
-    ghost_solution_host.update_ghost_values();
+    constraint_manager.apply(host_solutions.get_solution());
+    host_solutions.get_solution().update_ghost_values();
 
     dealii::DataOut<dim> data_out;
 
     data_out.attach_dof_handler(dof_manager.get_dof_handler());
-    data_out.add_data_vector(ghost_solution_host, "solution");
+    data_out.add_data_vector(host_solutions.get_solution(), "solution");
     data_out.build_patches();
 
     dealii::DataOutBase::VtkFlags flags;
@@ -204,7 +205,7 @@ private:
     data_out.write_vtu_with_pvtu_record(
       "./", "solution", increment, mpi_communicator, 6);
 
-    pcout << "  solution norm: " << ghost_solution_host.l2_norm() << std::endl;
+    pcout << "  solution norm: " << host_solutions.get_solution().l2_norm() << std::endl;
   };
 
   pagoma::Parameters parameters;
@@ -231,14 +232,8 @@ private:
 
   std::unique_ptr<AllenCahnOperator<dim, degree>> system_matrix;
 
-  dealii::LinearAlgebra::distributed::Vector<double, dealii::MemorySpace::Host>
-    ghost_solution_host;
-  dealii::LinearAlgebra::distributed::Vector<double,
-                                             dealii::MemorySpace::Default>
-    new_solution;
-  dealii::LinearAlgebra::distributed::Vector<double,
-                                             dealii::MemorySpace::Default>
-    old_solution;
+  pagoma::SolutionManager<double, dealii::MemorySpace::Host> host_solutions;
+  pagoma::SolutionManager<double, dealii::MemorySpace::Default> device_solutions;
 
   dealii::ConditionalOStream pcout;
 };
