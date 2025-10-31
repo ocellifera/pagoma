@@ -11,15 +11,15 @@ constexpr unsigned total_increments = 10000;
 /**
  * Evaluation of the Allen-Cahn operator at each quadrature point.
  */
-template<unsigned int dim, unsigned int degree>
+template<unsigned int dim, unsigned int degree, typename number>
 class AllenCahnOperatorQuad
 {
 public:
-  DEAL_II_HOST_DEVICE AllenCahnOperatorQuad(double _timestep)
+  DEAL_II_HOST_DEVICE AllenCahnOperatorQuad(number _timestep)
     : timestep(_timestep) {};
 
   DEAL_II_HOST_DEVICE void operator()(
-    dealii::Portable::FEEvaluation<dim, degree, degree + 1, 1, double>* fe_eval,
+    dealii::Portable::FEEvaluation<dim, degree, degree + 1, 1, number>* fe_eval,
     const unsigned int q_point) const
   {
     auto value = fe_eval->get_value(q_point);
@@ -34,7 +34,7 @@ public:
     fe_eval->submit_gradient(gradient_submission, q_point);
   };
 
-  double timestep = 0.0;
+  number timestep = 0.0;
 
   static constexpr unsigned int n_q_points =
     dealii::Utilities::pow(degree + 1, dim);
@@ -45,32 +45,32 @@ public:
 /**
  * Local evaluation of the Allen-Cahn operator
  */
-template<unsigned int dim, unsigned int degree>
+template<unsigned int dim, unsigned int degree, typename number>
 class LocalAllenCahnOperator
 {
 public:
-  DEAL_II_HOST_DEVICE LocalAllenCahnOperator(double _timestep)
+  DEAL_II_HOST_DEVICE LocalAllenCahnOperator(number _timestep)
     : timestep(_timestep) {};
 
   DEAL_II_HOST_DEVICE void operator()(
-    const typename dealii::Portable::MatrixFree<dim, double>::Data* data,
-    const dealii::Portable::DeviceVector<double>& src,
-    dealii::Portable::DeviceVector<double>& dst) const
+    const typename dealii::Portable::MatrixFree<dim, number>::Data* data,
+    const dealii::Portable::DeviceVector<number>& src,
+    dealii::Portable::DeviceVector<number>& dst) const
   {
-    dealii::Portable::FEEvaluation<dim, degree, degree + 1, 1, double> fe_eval(
+    dealii::Portable::FEEvaluation<dim, degree, degree + 1, 1, number> fe_eval(
       data);
 
     fe_eval.read_dof_values(src);
     fe_eval.evaluate(dealii::EvaluationFlags::EvaluationFlags::values |
                      dealii::EvaluationFlags::EvaluationFlags::gradients);
     fe_eval.apply_for_each_quad_point(
-      AllenCahnOperatorQuad<dim, degree>(timestep));
+      AllenCahnOperatorQuad<dim, degree, number>(timestep));
     fe_eval.integrate(dealii::EvaluationFlags::EvaluationFlags::values |
                       dealii::EvaluationFlags::EvaluationFlags::gradients);
     fe_eval.distribute_local_to_global(dst);
   };
 
-  double timestep = 0.0;
+  number timestep = 0.0;
 
   static constexpr unsigned int n_q_points =
     dealii::Utilities::pow(degree + 1, dim);
@@ -81,15 +81,15 @@ public:
 /**
  * Allen-Cahn operator
  */
-template<unsigned int dim, unsigned int degree>
+template<unsigned int dim, unsigned int degree, typename number>
 class AllenCahnOperator : public dealii::EnableObserverPointer
 {
 public:
   AllenCahnOperator(const dealii::DoFHandler<dim>& dof_handler,
-                    const dealii::AffineConstraints<double>& constraints)
+                    const dealii::AffineConstraints<number>& constraints)
   {
     const dealii::MappingQ<dim> mapping(degree);
-    typename dealii::Portable::MatrixFree<dim, double>::AdditionalData
+    typename dealii::Portable::MatrixFree<dim, number>::AdditionalData
       additional_data;
     additional_data.mapping_update_flags = dealii::update_values |
                                            dealii::update_gradients |
@@ -99,30 +99,30 @@ public:
   };
 
   void vmult(dealii::LinearAlgebra::distributed::
-               Vector<double, dealii::MemorySpace::Default>& dst,
+               Vector<number, dealii::MemorySpace::Default>& dst,
              const dealii::LinearAlgebra::distributed::
-               Vector<double, dealii::MemorySpace::Default>& src,
-             double timestep) const
+               Vector<number, dealii::MemorySpace::Default>& src,
+             number timestep) const
   {
     dst = 0.0;
-    LocalAllenCahnOperator<dim, degree> allen_cahn_operator(timestep);
+    LocalAllenCahnOperator<dim, degree, number> allen_cahn_operator(timestep);
     data.cell_loop(allen_cahn_operator, src, dst);
     data.copy_constrained_values(src, dst);
   };
 
   void initialize_dof_vector(
-    dealii::LinearAlgebra::distributed::Vector<double,
+    dealii::LinearAlgebra::distributed::Vector<number,
                                                dealii::MemorySpace::Default>&
       vec) const
   {
     data.initialize_dof_vector(vec);
   };
 
-  dealii::Portable::MatrixFree<dim, double>* get_matrix_free_data()
+  dealii::Portable::MatrixFree<dim, number>* get_matrix_free_data()
   {
     return &data;
   }
 
 private:
-  dealii::Portable::MatrixFree<dim, double> data;
+  dealii::Portable::MatrixFree<dim, number> data;
 };

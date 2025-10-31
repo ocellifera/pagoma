@@ -31,20 +31,20 @@
 #include "include/timer.h"
 #include "include/utilities.h"
 
-template<unsigned int dim>
-class InitialCondition : public dealii::Function<dim, double>
+template<unsigned int dim, typename number>
+class InitialCondition : public dealii::Function<dim, number>
 {
 public:
   InitialCondition() = default;
 
-  double value([[maybe_unused]] const dealii::Point<dim>& point,
+  number value([[maybe_unused]] const dealii::Point<dim>& point,
                [[maybe_unused]] unsigned int component = 0) const override
   {
-    double scalar_value = 0.5;
+    number scalar_value = 0.5;
 
     // Add a random perturbation
     static thread_local std::mt19937 gen(std::random_device{}());
-    std::uniform_real_distribution<double> dist_random(0.0, 1.0);
+    std::uniform_real_distribution<number> dist_random(0.0, 1.0);
     scalar_value += dist_random(gen) * 0.1;
 
     return scalar_value;
@@ -124,7 +124,7 @@ private:
     const dealii::MappingQ<dim> mapping(degree);
     const dealii::QGaussLobatto<1> quadrature(degree + 1);
 
-    typename dealii::MatrixFree<dim, double>::AdditionalData
+    typename dealii::MatrixFree<dim, number>::AdditionalData
       cpu_additional_data;
     cpu_additional_data.mapping_update_flags = dealii::update_values |
                                                dealii::update_gradients |
@@ -135,7 +135,7 @@ private:
                     quadrature,
                     cpu_additional_data);
 
-    typename dealii::Portable::MatrixFree<dim, double>::AdditionalData
+    typename dealii::Portable::MatrixFree<dim, number>::AdditionalData
       gpu_additional_data;
     gpu_additional_data.mapping_update_flags = dealii::update_values |
                                                dealii::update_gradients |
@@ -147,12 +147,12 @@ private:
                     gpu_additional_data);
 
     // Create the cpu and gpu invm objects and compute the invm
-    cpu_invm = std::make_unique<pagoma::CPU::Invm<dim, degree>>(&cpu_data);
+    cpu_invm = std::make_unique<pagoma::CPU::Invm<dim, degree, number>>(&cpu_data);
     cpu_invm->compute();
-    gpu_invm = std::make_unique<pagoma::GPU::Invm<dim, degree>>(&gpu_data);
+    gpu_invm = std::make_unique<pagoma::GPU::Invm<dim, degree, number>>(&gpu_data);
     gpu_invm->compute();
 
-    system_matrix.reset(new AllenCahnOperator<dim, degree>(
+    system_matrix.reset(new AllenCahnOperator<dim, degree, number>(
       dof_manager.get_dof_handler(), constraint_manager.get_constraints()));
 
     host_solutions.reinit(dof_manager, mpi_communicator);
@@ -164,10 +164,10 @@ private:
   {
     dealii::VectorTools::interpolate(mapping,
                                      dof_manager.get_dof_handler(),
-                                     InitialCondition<dim>(),
+                                     InitialCondition<dim, number>(),
                                      host_solutions.get_solution());
 
-    dealii::LinearAlgebra::ReadWriteVector<double> rw_vector(
+    dealii::LinearAlgebra::ReadWriteVector<number> rw_vector(
       dof_manager.get_locally_owned_dofs());
     rw_vector.import_elements(host_solutions.get_solution(),
                               dealii::VectorOperation::insert);
@@ -184,7 +184,7 @@ private:
 
   void output(unsigned int increment)
   {
-    dealii::LinearAlgebra::ReadWriteVector<double> rw_vector(
+    dealii::LinearAlgebra::ReadWriteVector<number> rw_vector(
       dof_manager.get_locally_owned_dofs());
     rw_vector.import_elements(device_solutions.get_solution(1), dealii::VectorOperation::insert);
     host_solutions.get_solution().import_elements(rw_vector,
@@ -218,22 +218,22 @@ private:
 
   pagoma::DoFManager<dim, dim> dof_manager;
 
-  pagoma::ConstraintManager<double> constraint_manager;
+  pagoma::ConstraintManager<number> constraint_manager;
 
   const dealii::FE_Q<dim> fe;
 
   const dealii::MappingQ<dim> mapping;
 
-  dealii::MatrixFree<dim, double> cpu_data;
-  dealii::Portable::MatrixFree<dim, double> gpu_data;
+  dealii::MatrixFree<dim, number> cpu_data;
+  dealii::Portable::MatrixFree<dim, number> gpu_data;
 
-  std::unique_ptr<pagoma::GPU::Invm<dim, degree>> gpu_invm;
-  std::unique_ptr<pagoma::CPU::Invm<dim, degree>> cpu_invm;
+  std::unique_ptr<pagoma::GPU::Invm<dim, degree, number>> gpu_invm;
+  std::unique_ptr<pagoma::CPU::Invm<dim, degree, number>> cpu_invm;
 
-  std::unique_ptr<AllenCahnOperator<dim, degree>> system_matrix;
+  std::unique_ptr<AllenCahnOperator<dim, degree, number>> system_matrix;
 
-  pagoma::SolutionManager<double, dealii::MemorySpace::Host> host_solutions;
-  pagoma::SolutionManager<double, dealii::MemorySpace::Default> device_solutions;
+  pagoma::SolutionManager<number, dealii::MemorySpace::Host> host_solutions;
+  pagoma::SolutionManager<number, dealii::MemorySpace::Default> device_solutions;
 
   dealii::ConditionalOStream pcout;
 };
