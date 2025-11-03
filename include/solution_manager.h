@@ -16,8 +16,16 @@ public:
   /**
    * @brief Constructor.
    */
-  SolutionManager(unsigned int n_blocks)
+  SolutionManager(unsigned int n_blocks = 0)
     : solutions(n_blocks) {};
+
+  /**
+   * @brief Resize the solution blocks.
+   *
+   * This corrupts the internal data structure, so `collect_sizes()` must be
+   * called after all the reinits are done.
+   */
+  void resize(unsigned int n_blocks) { solutions.reinit(n_blocks); }
 
   /**
    * @brief Reinitialize a solution with ghost indices of a given block index.
@@ -26,9 +34,12 @@ public:
    * once, and copy the parallel layout to other vectors with
    * `reinit(Vector<number, memory_space>)`. For now, this ought to only be
    * called a single time for scalar and vector fields.
+   *
+   * This corrupts the internal data structure, so `collect_sizes()` must be
+   * called after all the reinits are done.
    */
-  template<unsigned int dim, unsigned int spacedim>
-  void reinit(const pagoma::DoFManager<dim, spacedim>& dof_manager,
+  template<unsigned int dim>
+  void reinit(const pagoma::DoFManager<dim>& dof_manager,
               MPI_Comm mpi_communicator,
               unsigned int index = 0)
   {
@@ -42,6 +53,9 @@ public:
   /**
    * @brief Reinitialize a solution of a given block index with the same
    * parallel layout as the one given.
+   *
+   * This corrupts the internal data structure, so `collect_sizes()` must be
+   * called after all the reinits are done.
    */
   void reinit(
     const dealii::LinearAlgebra::distributed::Vector<number, memory_space>& vec,
@@ -58,6 +72,9 @@ public:
    *
    * This first index is the solution we are copying from and the second is the
    * one we are copying to.
+   *
+   * This corrupts the internal data structure, so `collect_sizes()` must be
+   * called after all the reinits are done.
    */
   void reinit(unsigned int copy_index, unsigned int index = 0)
   {
@@ -71,6 +88,9 @@ public:
   /**
    * @brief Reinitialze a solution of a given block index with the same parallel
    * layout as the given matrix-free data.
+   *
+   * This corrupts the internal data structure, so `collect_sizes()` must be
+   * called after all the reinits are done.
    */
   template<typename matrix_free>
   void reinit(const matrix_free& data, unsigned int index = 0)
@@ -79,6 +99,11 @@ public:
            dealii::ExcMessage("Index out of range for block vector."));
     data.initialize_dof_vector(solutions.block(index));
   }
+
+  /**
+   * @brief Update the internal structure of the vectors after resizing.
+   */
+  void collect_sizes() { solutions.collect_sizes(); }
 
   /**
    * @brief Get a solution vector of a given block index.

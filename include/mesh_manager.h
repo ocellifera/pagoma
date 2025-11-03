@@ -9,12 +9,11 @@
 
 namespace pagoma {
 
-template<unsigned int dim, unsigned int spacedim = dim>
+template<unsigned int dim>
 class MeshManager
 {
 public:
-  using Triangulation =
-    dealii::parallel::distributed::Triangulation<dim, spacedim>;
+  using Triangulation = dealii::parallel::distributed::Triangulation<dim, dim>;
 
   MeshManager(const MPI_Comm mpi_communicator)
     : triangulation(mpi_communicator) {};
@@ -40,7 +39,7 @@ public:
     Assert(triangulation.n_cells() > 0,
            dealii::ExcMessage("The triangulation has 0 active cells. Make sure "
                               "it is generated before trying to print."));
-    dealii::DataOut<dim, spacedim> data_out;
+    dealii::DataOut<dim, dim> data_out;
     data_out.attach_triangulation(triangulation);
     data_out.build_patches();
     data_out.write_vtu_in_parallel(filename,
@@ -51,14 +50,14 @@ private:
   Triangulation triangulation;
 };
 
-template<unsigned int dim, unsigned int spacedim = dim>
+template<unsigned int dim>
 class MeshBase
 {
 public:
   virtual ~MeshBase() = default;
 
   virtual void generate(
-    typename MeshManager<dim, spacedim>::Triangulation& triangulation) = 0;
+    typename MeshManager<dim>::Triangulation& triangulation) = 0;
 
   template<typename... Args>
   void initialize(Args&&... args)
@@ -77,8 +76,8 @@ protected:
   }
 };
 
-template<unsigned int dim, unsigned int spacedim = dim>
-class Cube : public MeshBase<dim, spacedim>
+template<unsigned int dim>
+class Cube : public MeshBase<dim>
 {
 public:
   Cube(unsigned int _repetitions = 0,
@@ -89,7 +88,7 @@ public:
     , upper_bound(_upper_bound) {};
 
   void generate(
-    typename MeshManager<dim, spacedim>::Triangulation& triangulation) override
+    typename MeshManager<dim>::Triangulation& triangulation) override
   {
     Assert(triangulation.n_cells() == 0,
            dealii::ExcMessage(
@@ -117,8 +116,8 @@ private:
   double upper_bound = 0.0;
 };
 
-template<unsigned int dim, unsigned int spacedim = dim>
-class Torus : public MeshBase<dim, spacedim>
+template<unsigned int dim>
+class Torus : public MeshBase<dim>
 {
 public:
   Torus(double _center_radius = 0.0,
@@ -131,7 +130,7 @@ public:
     , phi(_phi) {};
 
   void generate(
-    typename MeshManager<dim, spacedim>::Triangulation& triangulation) override
+    typename MeshManager<dim>::Triangulation& triangulation) override
   {
     Assert(triangulation.n_cells() == 0,
            dealii::ExcMessage(
