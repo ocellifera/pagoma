@@ -7,14 +7,14 @@
 
 namespace pagoma {
 
-template<unsigned int dim, unsigned int spacedim>
+template<unsigned int dim>
 class DoFManager
 {
 public:
   DoFManager() = default;
 
-  void reinit(const typename MeshManager<dim, spacedim>::Triangulation& tria,
-              const dealii::FiniteElement<dim, spacedim>& fe)
+  void reinit(const typename MeshManager<dim>::Triangulation& tria,
+              const dealii::FiniteElement<dim, dim>& fe)
   {
     dof_handler.reinit(tria);
     dof_handler.distribute_dofs(fe);
@@ -24,7 +24,7 @@ public:
       dealii::DoFTools::extract_locally_relevant_dofs(dof_handler);
   }
 
-  const dealii::DoFHandler<dim, spacedim>& get_dof_handler() const
+  const dealii::DoFHandler<dim, dim>& get_dof_handler() const
   {
     return dof_handler;
   }
@@ -40,7 +40,7 @@ public:
   }
 
 private:
-  dealii::DoFHandler<dim, spacedim> dof_handler;
+  dealii::DoFHandler<dim, dim> dof_handler;
 
   dealii::IndexSet locally_owned_dofs;
 

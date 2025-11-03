@@ -16,8 +16,8 @@ class ConstraintManager
 public:
   ConstraintManager() = default;
 
-  template<unsigned int dim, unsigned int spacedim>
-  void reinit(const DoFManager<dim, spacedim>& dof_manager)
+  template<unsigned int dim>
+  void reinit(const DoFManager<dim>& dof_manager)
   {
     constraints.clear();
     constraints.reinit(dof_manager.get_locally_owned_dofs(),

@@ -16,10 +16,16 @@ struct Parameters
     DOUBLE
   };
 
+  enum Backend
+  {
+    GPU,
+    CPU
+  };
+
   unsigned int dim = 0;
-  unsigned int spacedim = 0;
   unsigned int degree = 0;
   RealNumber number = static_cast<RealNumber>(-1);
+  Backend backend = static_cast<Backend>(-1);
   double timestep = 0.0;
 };
 
@@ -33,11 +39,6 @@ public:
                       dealii::Patterns::Integer(1, 3),
                       "The problem dimension",
                       true);
-    prm.declare_entry("spacedim",
-                      "2",
-                      dealii::Patterns::Integer(1, 3),
-                      "The space dimension",
-                      true);
     prm.declare_entry("degree",
                       "2",
                       dealii::Patterns::Integer(1, 6),
@@ -47,6 +48,11 @@ public:
                       "float",
                       dealii::Patterns::Selection("float|double"),
                       "The real number type for the fields",
+                      true);
+    prm.declare_entry("backend",
+                      "GPU",
+                      dealii::Patterns::Selection("GPU|CPU"),
+                      "The backend for which to run the code",
                       true);
     prm.declare_entry("time step",
                       "0.0",
@@ -62,11 +68,12 @@ public:
 
     // Read and assign the parameters
     parameters.dim = prm.get_integer("dim");
-    parameters.spacedim = prm.get_integer("spacedim");
     parameters.degree = prm.get_integer("degree");
     parameters.number = prm.get("real number") == "float"
                           ? Parameters::RealNumber::FLOAT
                           : Parameters::RealNumber::DOUBLE;
+    parameters.backend = prm.get("backend") == "GPU" ? Parameters::Backend::GPU
+                                                     : Parameters::Backend::CPU;
     parameters.timestep = prm.get_double("time step");
 
     // Print the parameter descriptions
