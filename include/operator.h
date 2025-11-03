@@ -1,56 +1,58 @@
 #pragma once
 
+#include <deal.II/dofs/dof_handler.h>
+#include <deal.II/fe/mapping_q.h>
+#include <deal.II/lac/affine_constraints.h>
 #include <deal.II/matrix_free/portable_fe_evaluation.h>
 #include <deal.II/matrix_free/portable_matrix_free.h>
+
+namespace pagoma {
 
 // Parameters for the mobility and gradient energy
 constexpr double mobility = 1.0;
 constexpr double gradient_energy = 2.0;
-constexpr unsigned total_increments = 10000;
 
 /**
- * Evaluation of the Allen-Cahn operator at each quadrature point.
+ * @brief User-defined operator evaulated at each quadrature point.
  */
-template<unsigned int dim, unsigned int degree, typename number>
-class AllenCahnOperatorQuad
+template<unsigned int dim,
+         unsigned int degree,
+         typename number,
+         unsigned int index>
+class UserOperator
 {
 public:
-  DEAL_II_HOST_DEVICE AllenCahnOperatorQuad(number _timestep)
-    : timestep(_timestep) {};
+  DEAL_II_HOST_DEVICE UserOperator() {};
 
   DEAL_II_HOST_DEVICE void operator()(
     dealii::Portable::FEEvaluation<dim, degree, degree + 1, 1, number>* fe_eval,
     const unsigned int q_point) const
   {
-    auto value = fe_eval->get_value(q_point);
-    auto gradient = fe_eval->get_gradient(q_point);
+    if constexpr (index == 0) {
+      auto value = fe_eval->get_value(q_point);
+      auto gradient = fe_eval->get_gradient(q_point);
 
-    auto double_well = 4.0 * value * (value - 1.0) * (value - 0.5);
-    auto value_submission = value - timestep * mobility * double_well;
-    auto gradient_submission =
-      -timestep * mobility * gradient_energy * gradient;
+      auto double_well = 4.0 * value * (value - 1.0) * (value - 0.5);
+      auto value_submission = -mobility * double_well;
+      auto gradient_submission = -mobility * gradient_energy * gradient;
 
-    fe_eval->submit_value(value_submission, q_point);
-    fe_eval->submit_gradient(gradient_submission, q_point);
-  };
-
-  number timestep = 0.0;
+      fe_eval->submit_value(value_submission, q_point);
+      fe_eval->submit_gradient(gradient_submission, q_point);
+    }
+  }
 
   static constexpr unsigned int n_q_points =
     dealii::Utilities::pow(degree + 1, dim);
 
-  static constexpr unsigned int n_local_dofs = n_q_points;
+  static constexpr unsigned int n_local_dofs =
+    dealii::Utilities::pow(degree + 1, dim);
 };
 
-/**
- * Local evaluation of the Allen-Cahn operator
- */
 template<unsigned int dim, unsigned int degree, typename number>
-class LocalAllenCahnOperator
+class LocalOperator
 {
 public:
-  DEAL_II_HOST_DEVICE LocalAllenCahnOperator(number _timestep)
-    : timestep(_timestep) {};
+  DEAL_II_HOST_DEVICE LocalOperator() {};
 
   DEAL_II_HOST_DEVICE void operator()(
     const typename dealii::Portable::MatrixFree<dim, number>::Data* data,
@@ -63,57 +65,52 @@ public:
     fe_eval.read_dof_values(src);
     fe_eval.evaluate(dealii::EvaluationFlags::EvaluationFlags::values |
                      dealii::EvaluationFlags::EvaluationFlags::gradients);
-    fe_eval.apply_for_each_quad_point(
-      AllenCahnOperatorQuad<dim, degree, number>(timestep));
+    fe_eval.apply_for_each_quad_point(UserOperator<dim, degree, number, 0>());
     fe_eval.integrate(dealii::EvaluationFlags::EvaluationFlags::values |
                       dealii::EvaluationFlags::EvaluationFlags::gradients);
     fe_eval.distribute_local_to_global(dst);
   };
 
-  number timestep = 0.0;
-
   static constexpr unsigned int n_q_points =
     dealii::Utilities::pow(degree + 1, dim);
 
-  static constexpr unsigned int n_local_dofs = n_q_points;
+  static constexpr unsigned int n_local_dofs =
+    dealii::Utilities::pow(degree + 1, dim);
 };
 
 /**
- * Allen-Cahn operator
+ * @brief Main operator class that handles vector initialization, matrix-free
+ * data, and vector multiplication.
  */
 template<unsigned int dim, unsigned int degree, typename number>
-class AllenCahnOperator : public dealii::EnableObserverPointer
+class Operator : public dealii::EnableObserverPointer
 {
 public:
-  AllenCahnOperator(const dealii::DoFHandler<dim>& dof_handler,
-                    const dealii::AffineConstraints<number>& constraints)
+  Operator(const dealii::DoFHandler<dim>& dof_handler,
+           const dealii::AffineConstraints<number>& constraints)
   {
+    // TODO: Mapping and quadrature should be constructor inputs
     const dealii::MappingQ<dim> mapping(degree);
+    const dealii::QGaussLobatto<1> quadrature(degree + 1);
     typename dealii::Portable::MatrixFree<dim, number>::AdditionalData
       additional_data;
     additional_data.mapping_update_flags = dealii::update_values |
                                            dealii::update_gradients |
                                            dealii::update_JxW_values;
-    const dealii::QGaussLobatto<1> quadrature(degree + 1);
     data.reinit(mapping, dof_handler, constraints, quadrature, additional_data);
-  };
+  }
 
-  void vmult(dealii::LinearAlgebra::distributed::
-               Vector<number, dealii::MemorySpace::Default>& dst,
-             const dealii::LinearAlgebra::distributed::
-               Vector<number, dealii::MemorySpace::Default>& src,
-             number timestep) const
+  template<typename vector>
+  void vmult(vector& dst, const vector& src) const
   {
     dst = 0.0;
-    LocalAllenCahnOperator<dim, degree, number> allen_cahn_operator(timestep);
-    data.cell_loop(allen_cahn_operator, src, dst);
-    data.copy_constrained_values(src, dst);
-  };
+    data.cell_loop(LocalOperator<dim, degree, number>(), src, dst);
+    // data.copy_constrained_values(src, dst);
+  }
 
+  template<typename memory_space>
   void initialize_dof_vector(
-    dealii::LinearAlgebra::distributed::Vector<number,
-                                               dealii::MemorySpace::Default>&
-      vec) const
+    dealii::LinearAlgebra::distributed::Vector<number, memory_space>& vec) const
   {
     data.initialize_dof_vector(vec);
   };
@@ -126,3 +123,5 @@ public:
 private:
   dealii::Portable::MatrixFree<dim, number> data;
 };
+
+}

@@ -21,15 +21,18 @@
 #include <stdexcept>
 #include <type_traits>
 
-#include "include/allen_cahn_operator.h"
 #include "include/constraint_manager.h"
 #include "include/dof_manager.h"
 #include "include/invm.h"
 #include "include/mesh_manager.h"
+#include "include/operator.h"
 #include "include/parameters.h"
 #include "include/solution_manager.h"
+#include "include/time_iterator.h"
 #include "include/timer.h"
 #include "include/utilities.h"
+
+constexpr unsigned total_increments = 10000;
 
 template<unsigned int dim, typename number>
 class InitialCondition : public dealii::Function<dim, number>
@@ -66,7 +69,7 @@ public:
     , fe(degree)
     , mapping(degree)
     , host_solutions(1)
-    , device_solutions(2)
+    , device_solutions(3)
     , pcout(std::cout,
             dealii::Utilities::MPI::this_mpi_process(mpi_communicator) == 0) {};
 
@@ -154,12 +157,13 @@ private:
       std::make_unique<pagoma::GPU::Invm<dim, degree, number>>(&gpu_data);
     gpu_invm->compute();
 
-    system_matrix.reset(new AllenCahnOperator<dim, degree, number>(
+    system_matrix.reset(new pagoma::Operator<dim, degree, number>(
       dof_manager.get_dof_handler(), constraint_manager.get_constraints()));
 
     host_solutions.reinit(dof_manager, mpi_communicator);
     device_solutions.reinit(*system_matrix, 0);
     device_solutions.reinit(*system_matrix, 1);
+    device_solutions.reinit(*system_matrix, 2);
   };
 
   void apply_initial_condition()
@@ -181,10 +185,15 @@ private:
 
   void solve()
   {
-    system_matrix->vmult(device_solutions.get_solution(1),
-                         device_solutions.get_solution(0),
-                         parameters.timestep);
-    device_solutions.get_solution(1).scale(gpu_invm->get_invm());
+    using MatrixType = typename pagoma::Operator<dim, degree, number>;
+    using VectorType = typename dealii::LinearAlgebra::distributed::
+      Vector<number, dealii::MemorySpace::Default>;
+    pagoma::TimeIterator<MatrixType> integrator(*system_matrix);
+    integrator.forward_euler(device_solutions.get_solution(1),
+                             device_solutions.get_solution(0),
+                             device_solutions.get_solution(2),
+                             gpu_invm->get_invm(),
+                             parameters.timestep);
     device_solutions.get_solution(1).swap(device_solutions.get_solution(0));
   };
 
@@ -238,7 +247,7 @@ private:
   std::unique_ptr<pagoma::GPU::Invm<dim, degree, number>> gpu_invm;
   std::unique_ptr<pagoma::CPU::Invm<dim, degree, number>> cpu_invm;
 
-  std::unique_ptr<AllenCahnOperator<dim, degree, number>> system_matrix;
+  std::unique_ptr<pagoma::Operator<dim, degree, number>> system_matrix;
 
   pagoma::SolutionManager<number, dealii::MemorySpace::Host> host_solutions;
   pagoma::SolutionManager<number, dealii::MemorySpace::Default>
